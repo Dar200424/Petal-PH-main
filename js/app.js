@@ -240,6 +240,22 @@ const PetalApp = (() => {
     return { ok: true };
   }
 
+  async function adminSetCourierLocation(orderId, lat, lng) {
+    const toNum = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+    const a = toNum(lat);
+    const b = toNum(lng);
+    if (!isFinite(a) || !isFinite(b) || a < -90 || a > 90 || b < -180 || b > 180) {
+      return { ok: false, message: 'Invalid coordinates.' };
+    }
+    const { error } = await sb.rpc('admin_set_courier_location', {
+      p_order_id: orderId,
+      p_lat: a,
+      p_lng: b
+    });
+    if (error) return { ok: false, message: error.message || 'Could not share location.' };
+    return { ok: true };
+  }
+
   async function sendMessage(userId, from, text) {
     const clean = String(text || '').trim();
     if (!clean) return { ok: false, message: 'Message is empty.' };
@@ -591,7 +607,7 @@ const PetalApp = (() => {
     requireAuth, logout, login, signup, getSession,
     getMyProfile, getMyOrders, getOrders, getMessages, getProducts, getCouriers, getMessageUser,
     placeOrder, cancelMyOrder,
-    setOrderStatus, saveDelivery,
+    setOrderStatus, saveDelivery, adminSetCourierLocation,
     sendMessage, markRead, unreadCount, conversationList,
     updateAvatar, removeAvatar,
     saveProduct, deleteProduct, setAvailability, setStock,

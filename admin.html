@@ -6,6 +6,17 @@
   <title>Petal-PH | Admin Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    #courierModal .modal-card { max-height: 92vh; overflow-y: auto; }
+    .courier-map { height: 300px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #e8efe9; }
+    .courier-pin { background: none; border: 0; }
+    .courier-pin svg { display: block; }
+    .courier-legend { font-size: .85rem; color: var(--muted); flex-wrap: wrap; gap: .9rem; }
+    .courier-legend .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .3rem; }
+    .share-status { margin-top: .35rem; font-size: .82rem; color: var(--muted); }
+    .share-status.error { color: #b33a3a; }
+  </style>
 </head>
 <body class="app-shell admin-hover-menu">
   <header class="topbar">
@@ -281,6 +292,26 @@
     </div>
   </div>
 
+  <!-- Courier location modal -->
+  <div id="courierModal" class="modal hidden">
+    <div class="modal-card">
+      <h3 style="margin-top:0">Set courier location</h3>
+      <p class="muted" style="margin:.2rem 0 .7rem;">Tap the map to place the courier marker, then send it.</p>
+      <div class="row courier-legend">
+        <span><i class="dot" style="background:#2e7d5b"></i>Shop</span>
+        <span><i class="dot" style="background:#5b8def"></i>Customer pin</span>
+        <span><i class="dot" style="background:#c94f7c"></i>Courier</span>
+      </div>
+      <div id="courierMap" class="courier-map" style="margin:.7rem 0"></div>
+      <p class="muted hidden" id="courierPinNote" style="margin:.2rem 0 .5rem;">The customer did not set a map pin.</p>
+      <div id="courierMapMsg" class="msg" style="margin:.3rem 0 0"></div>
+      <div class="row" style="justify-content:flex-end; margin-top:1rem;">
+        <button class="btn btn-outline" id="courierMapCancel" type="button">Cancel</button>
+        <button class="btn" id="courierMapSend" type="button">Send location</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Customer history modal -->
   <div id="historyModal" class="modal hidden">
     <div class="modal-card">
@@ -298,6 +329,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0" integrity="sha384-NNePyabYRaJyedI6EQAY7SV5Z8/0sQkuQ5WVfhKm0H+j0KSugkI2ZMNzw/QtzAWz" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -768,9 +800,18 @@
               ${PetalApp.DELIVERY_STATUS.map(s => `<option value="${s}" ${(o.delivery_status || 'Preparing') === s ? 'selected' : ''}>${s}</option>`).join('')}
             </select>
           </td>
-          <td><button class="btn btn-sm" onclick="saveDelivery(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Save</button></td>
+          <td>
+            <button class="btn btn-sm" onclick="saveDelivery(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Save</button>
+            ${o.delivery_status === 'In transit' ? `
+            <div class="row" style="margin-top:.35rem; flex-wrap:wrap; gap:.35rem;">
+              <button class="btn btn-sm btn-outline" type="button" data-share="${PetalApp.escapeHtml(o.id)}" onclick="toggleShare(this.dataset.share)">${shareButtonLabel(o.id)}</button>
+              <button class="btn btn-sm btn-outline" type="button" data-id="${PetalApp.escapeHtml(o.id)}" onclick="openCourierMap(this.dataset.id)">Set on map</button>
+            </div>
+            <div class="share-status" id="sharemsg_${PetalApp.escapeHtml(o.id)}"></div>` : ''}
+          </td>
         </tr>
       `).join('') || '<tr><td colspan="8">No active orders to deliver.</td></tr>';
+      syncShareButtons();
     }
     window.saveDelivery = async (id) => {
       const res = await PetalApp.saveDelivery(id, {
@@ -783,6 +824,298 @@
       await refreshAll();
       renderAll();
     };
+
+    /* ---------- Courier location sharing ---------- */
+    const SHARE_INTERVAL_MS = 15000;
+    let shareOrderId = null;
+    let shareWatchId = null;
+    let shareTimerId = null;
+    let shareLastSent = 0;
+    let shareStatusText = '';
+
+    function clockText(d) {
+      const pad = n => String(n).padStart(2, '0');
+      return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+
+    function shareButtonLabel(id) {
+      return shareOrderId === id ? 'Stop sharing' : 'Share live location';
+    }
+
+    function setShareText(id, text, isError) {
+      const el = document.getElementById('sharemsg_' + id);
+      if (!el) return;
+      el.textContent = text || '';
+      el.className = 'share-status' + (isError && text ? ' error' : '');
+    }
+
+    function syncShareButtons() {
+      document.querySelectorAll('button[data-share]').forEach(btn => {
+        const on = !!shareOrderId && btn.dataset.share === shareOrderId;
+        btn.textContent = on ? 'Stop sharing' : 'Share live location';
+        btn.classList.toggle('btn-danger', on);
+        btn.classList.toggle('btn-outline', !on);
+      });
+      if (shareOrderId) setShareText(shareOrderId, shareStatusText, false);
+    }
+
+    function stopSharing(id, message) {
+      if (shareWatchId !== null) {
+        try { navigator.geolocation.clearWatch(shareWatchId); } catch (err) { /* geolocation unavailable */ }
+      }
+      shareWatchId = null;
+      if (shareTimerId !== null) { clearInterval(shareTimerId); shareTimerId = null; }
+      shareOrderId = null;
+      shareLastSent = 0;
+      shareStatusText = '';
+      syncShareButtons();
+      if (id) setShareText(id, message || '', false);
+    }
+
+    function isOutOfDeliveryMessage(text) {
+      return /out for delivery/i.test(String(text || ''));
+    }
+
+    function onSharePosition(id, pos) {
+      if (shareOrderId !== id) return;
+      const now = Date.now();
+      if (shareLastSent && now - shareLastSent < SHARE_INTERVAL_MS) return;
+      shareLastSent = now;
+      shareStatusText = 'Sharing... last sent ' + clockText(new Date(now));
+      setShareText(id, shareStatusText, false);
+      PetalApp.adminSetCourierLocation(id, pos.coords.latitude, pos.coords.longitude).then(res => {
+        if (shareOrderId !== id) return;
+        if (res.ok) { setShareText(id, shareStatusText, false); return; }
+        const message = res.message || 'Could not share location.';
+        if (isOutOfDeliveryMessage(message)) { stopSharing(id, message); return; }
+        setShareText(id, message, true);
+      }).catch(err => {
+        if (shareOrderId !== id) return;
+        setShareText(id, (err && err.message) || 'Could not share location.', true);
+      });
+    }
+
+    function onShareError(id, err) {
+      if (shareOrderId !== id) return;
+      const code = err && err.code;
+      const message = code === 1
+        ? 'Location permission denied. Allow it in your browser settings.'
+        : code === 2
+          ? 'Your location is currently unavailable.'
+          : code === 3
+            ? 'Timed out getting your location. Waiting for a new fix...'
+            : 'Could not get your location.';
+      if (code === 1 || code === 2) { stopSharing(id, message); return; }
+      setShareText(id, message, true);
+    }
+
+    function startSharing(id) {
+      const order = PetalApp.getOrders().find(o => o.id === id);
+      if (!order || order.delivery_status !== 'In transit') {
+        setShareText(id, 'Only orders that are In transit can share a location.', true);
+        return;
+      }
+      if (!navigator.geolocation || typeof navigator.geolocation.watchPosition !== 'function') {
+        setShareText(id, 'Location sharing is not supported by this browser.', true);
+        return;
+      }
+      shareOrderId = id;
+      shareLastSent = 0;
+      shareStatusText = 'Sharing...';
+      setShareText(id, shareStatusText, false);
+      syncShareButtons();
+      let watchId = null;
+      try {
+        watchId = navigator.geolocation.watchPosition(
+          pos => onSharePosition(id, pos),
+          err => onShareError(id, err),
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+        );
+      } catch (err) {
+        stopSharing(id, 'Could not start location sharing.');
+        return;
+      }
+      if (typeof watchId !== 'number') {
+        stopSharing(id, 'Could not start location sharing.');
+        return;
+      }
+      shareWatchId = watchId;
+      shareTimerId = setInterval(() => {
+        if (!shareOrderId) return;
+        const current = PetalApp.getOrders().find(o => o.id === shareOrderId);
+        if (!current || current.delivery_status !== 'In transit') {
+          stopSharing(shareOrderId, 'Sharing stopped: this order is no longer In transit.');
+          return;
+        }
+        setShareText(shareOrderId, shareStatusText, false);
+      }, 1000);
+    }
+
+    window.toggleShare = (id) => {
+      if (shareOrderId === id) { stopSharing(id, 'Sharing stopped.'); return; }
+      if (shareOrderId) stopSharing(shareOrderId, 'Sharing stopped.');
+      startSharing(id);
+    };
+
+    /* ---------- Courier location map ---------- */
+    const COURIER_COLORS = { shop: '#2e7d5b', customer: '#5b8def', courier: '#c94f7c' };
+    const COURIER_PIN_PATH = 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z';
+    let courierMap = null;
+    let courierLayerGroup = null;
+    let courierMarker = null;
+    let courierOrderId = null;
+    let courierPending = null;
+    const courierSendBtn = document.getElementById('courierMapSend');
+
+    function courierPinIcon(color) {
+      return L.divIcon({
+        className: 'courier-pin',
+        html: '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="' + color + '" fill-rule="evenodd" d="' + COURIER_PIN_PATH + '"/></svg>',
+        iconSize: [26, 26],
+        iconAnchor: [13, 25]
+      });
+    }
+
+    function courierShopCenter() {
+      const lat = Number(window.SHOP_LAT);
+      const lng = Number(window.SHOP_LNG);
+      if (isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) return [lat, lng];
+      return [7.0731, 125.6128];
+    }
+
+    function courierCoord(value, max) {
+      if (value === null || value === undefined || value === '') return null;
+      const n = Number(value);
+      if (!isFinite(n) || Math.abs(n) > max) return null;
+      return n;
+    }
+
+    function placeCourierPoint(latlng) {
+      courierPending = [latlng[0], latlng[1]];
+      if (!courierMap) return;
+      if (courierMarker) { courierMarker.setLatLng(courierPending); return; }
+      courierMarker = L.marker(courierPending, {
+        draggable: true,
+        autoPan: true,
+        icon: courierPinIcon(COURIER_COLORS.courier)
+      }).addTo(courierLayerGroup);
+      courierMarker.on('dragend', () => {
+        const p = courierMarker.getLatLng();
+        courierPending = [p.lat, p.lng];
+      });
+    }
+
+    function ensureCourierMap() {
+      if (courierMap) return courierMap;
+      const el = document.getElementById('courierMap');
+      if (!el || !window.L || !L.map) return null;
+      courierMap = L.map(el, { scrollWheelZoom: false }).setView(courierShopCenter(), 15);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(courierMap);
+      courierLayerGroup = L.layerGroup().addTo(courierMap);
+      courierMap.on('click', e => placeCourierPoint([e.latlng.lat, e.latlng.lng]));
+      return courierMap;
+    }
+
+    function closeCourierModal() {
+      document.getElementById('courierModal').classList.add('hidden');
+      courierOrderId = null;
+      courierPending = null;
+    }
+
+    function openCourierMap(id) {
+      const order = PetalApp.getOrders().find(o => o.id === id);
+      if (!order) return;
+      const msg = document.getElementById('courierMapMsg');
+      if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+      const note = document.getElementById('courierPinNote');
+      courierOrderId = id;
+      courierPending = null;
+      courierMarker = null;
+      document.getElementById('courierModal').classList.remove('hidden');
+      const map = ensureCourierMap();
+      if (!map) {
+        if (note) note.classList.add('hidden');
+        if (courierSendBtn) courierSendBtn.disabled = true;
+        if (msg) { msg.className = 'msg error'; msg.textContent = 'The map could not load. Check your internet connection.'; }
+        return;
+      }
+      if (courierSendBtn) courierSendBtn.disabled = false;
+      courierLayerGroup.clearLayers();
+      const shop = courierShopCenter();
+      L.marker(shop, { icon: courierPinIcon(COURIER_COLORS.shop) }).addTo(courierLayerGroup);
+
+      const destLat = courierCoord(order.dest_lat, 90);
+      const destLng = courierCoord(order.dest_lng, 180);
+      const hasDest = destLat !== null && destLng !== null;
+      let dest = null;
+      if (hasDest) {
+        dest = [destLat, destLng];
+        L.marker(dest, { icon: courierPinIcon(COURIER_COLORS.customer) }).addTo(courierLayerGroup);
+      }
+      if (note) note.classList.toggle('hidden', hasDest);
+
+      const curLat = courierCoord(order.courier_lat, 90);
+      const curLng = courierCoord(order.courier_lng, 180);
+      const hasCourier = curLat !== null && curLng !== null;
+      if (hasCourier) courierPending = [curLat, curLng];
+
+      setTimeout(() => {
+        map.invalidateSize();
+        const points = [shop];
+        if (dest) points.push(dest);
+        if (courierPending) points.push(courierPending);
+        if (points.length > 1) map.fitBounds(points, { padding: [40, 40], maxZoom: 16 });
+        else map.setView(shop, 15);
+        if (courierPending) placeCourierPoint(courierPending);
+      }, 60);
+    }
+
+    window.openCourierMap = openCourierMap;
+
+    if (courierSendBtn) {
+      courierSendBtn.addEventListener('click', async () => {
+        if (!courierOrderId) { closeCourierModal(); return; }
+        const msg = document.getElementById('courierMapMsg');
+        if (!courierPending) {
+          if (msg) { msg.className = 'msg error'; msg.textContent = 'Tap the map to place the courier marker first.'; }
+          return;
+        }
+        const id = courierOrderId;
+        const label = courierSendBtn.textContent;
+        courierSendBtn.disabled = true;
+        courierSendBtn.textContent = 'Sending...';
+        let res;
+        try {
+          res = await PetalApp.adminSetCourierLocation(id, courierPending[0], courierPending[1]);
+        } catch (err) {
+          res = { ok: false, message: (err && err.message) || 'Could not send location.' };
+        }
+        courierSendBtn.disabled = false;
+        courierSendBtn.textContent = label || 'Send location';
+        if (!res.ok) {
+          if (msg) { msg.className = 'msg error'; msg.textContent = res.message || 'Could not send location.'; }
+          return;
+        }
+        setShareText(id, 'Location sent ' + clockText(new Date()), false);
+        closeCourierModal();
+      });
+    }
+    document.getElementById('courierMapCancel').addEventListener('click', closeCourierModal);
+
+    /* ---------- Sharing lifecycle ---------- */
+    document.getElementById('logoutBtn').addEventListener('click', () => stopSharing(shareOrderId, ''));
+    window.addEventListener('pagehide', () => stopSharing(shareOrderId, ''));
+    const adminSidebar = document.getElementById('sidebar');
+    if (adminSidebar) {
+      adminSidebar.addEventListener('click', e => {
+        const btn = e.target && e.target.closest ? e.target.closest('[data-page]') : null;
+        if (!btn || btn.dataset.page === 'delivery') return;
+        if (shareOrderId) stopSharing(shareOrderId, '');
+      });
+    }
 
     /* ---------- Courier management (Delivery page) ---------- */
     const addCourierRow = document.createElement('div');
