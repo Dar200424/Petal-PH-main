@@ -7,15 +7,18 @@
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="stylesheet" href="css/styles.css">
 </head>
-<body class="app-shell">
+<body class="app-shell admin-hover-menu">
   <header class="topbar">
-    <a class="brand" href="admin.html"><img class="brand-logo" src="logo.svg" alt="Petal-PH logo">Petal-PH <span class="brand-tag">Admin</span></a>
+    <div class="topbar-left">
+      <button class="burger burger-hover" id="menuBtn" aria-label="Toggle sidebar" aria-expanded="false" aria-controls="sidebar">&#9776;<span class="burger-dot hidden" id="menuDot"></span></button>
+      <a class="brand" href="admin.html"><img class="brand-logo" src="logo.svg" alt="Petal-PH logo">Petal-PH <span class="brand-tag">Admin</span></a>
+    </div>
     <div class="user-chip">
       <span class="avatar avatar-fallback">A</span>
       <span class="muted">Admin</span>
     </div>
-    <button class="burger" id="menuBtn" aria-label="Menu">&#9776;</button>
   </header>
+  <div class="nav-backdrop" id="navBackdrop"></div>
   <div class="layout">
     <aside class="sidebar" id="sidebar">
       <button class="active" data-page="overview">Dashboard Overview</button>
@@ -351,15 +354,118 @@
       }
     }
 
+    /* ---------- Sidebar / burger ---------- */
     const sidebar = document.getElementById('sidebar');
-    document.getElementById('menuBtn').addEventListener('click', () => sidebar.classList.toggle('open'));
+    const menuBtn = document.getElementById('menuBtn');
+    const navBackdrop = document.getElementById('navBackdrop');
+    const mqMobile = window.matchMedia('(max-width: 800px)');
+    const mqHover = window.matchMedia('(hover: hover)');
+    const isOverlay = () => mqMobile.matches || !mqHover.matches;
+    const isFlyout = () => !isOverlay();
+    const HOVER_GRACE_MS = 250;
+    let closeTimer = null;
+
+    function syncTopbarHeight() {
+      const topbar = document.querySelector('.topbar');
+      if (topbar) document.documentElement.style.setProperty('--topbar-h', topbar.offsetHeight + 'px');
+    }
+
+    function cancelClose() {
+      if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; }
+    }
+
+    function setMenu(open) {
+      sidebar.classList.toggle('open', open);
+      navBackdrop.classList.toggle('open', open);
+      menuBtn.setAttribute('aria-expanded', String(open));
+      if (!open) cancelClose();
+    }
+
+    function scheduleClose() {
+      cancelClose();
+      closeTimer = setTimeout(() => { closeTimer = null; setMenu(false); }, HOVER_GRACE_MS);
+    }
+
+    menuBtn.addEventListener('click', () => setMenu(!sidebar.classList.contains('open')));
+    navBackdrop.addEventListener('click', () => setMenu(false));
+
+    /* Desktop flyout: stay open while the cursor is on the burger or the menu */
+    menuBtn.addEventListener('mouseenter', () => {
+      if (!isFlyout()) return;
+      cancelClose();
+      setMenu(true);
+    });
+    menuBtn.addEventListener('mouseleave', () => {
+      if (isFlyout()) scheduleClose();
+    });
+    sidebar.addEventListener('mouseenter', () => {
+      if (isFlyout()) cancelClose();
+    });
+    sidebar.addEventListener('mouseleave', () => {
+      if (isFlyout()) scheduleClose();
+    });
+
+    /* Keyboard: focus inside the menu keeps it open */
+    sidebar.addEventListener('focusin', () => {
+      if (!isFlyout()) return;
+      cancelClose();
+      setMenu(true);
+    });
+    sidebar.addEventListener('focusout', (e) => {
+      if (!isFlyout()) return;
+      if (menuBtn.contains(e.relatedTarget)) return;
+      scheduleClose();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !sidebar.classList.contains('open')) return;
+      const focusInMenu = document.activeElement === menuBtn || sidebar.contains(document.activeElement);
+      setMenu(false);
+      if (isFlyout() && focusInMenu) menuBtn.focus();
+    });
+
+    function syncMenu() {
+      syncTopbarHeight();
+      cancelClose();
+      sidebar.classList.remove('open');
+      navBackdrop.classList.remove('open');
+      menuBtn.setAttribute('aria-expanded', 'false');
+    }
+    if (mqMobile.addEventListener) mqMobile.addEventListener('change', syncMenu);
+    else mqMobile.addListener(syncMenu);
+    if (mqHover.addEventListener) mqHover.addEventListener('change', syncMenu);
+    else mqHover.addListener(syncMenu);
+    window.addEventListener('resize', syncTopbarHeight);
+    window.addEventListener('load', syncTopbarHeight);
+    syncTopbarHeight();
+    syncMenu();
+
+    /* Unread dot on the burger (reads the existing #adminMsgBadge) */
+    const msgBadge = document.getElementById('adminMsgBadge');
+    const menuDot = document.getElementById('menuDot');
+    function syncMsgDot() {
+      if (!msgBadge || !menuDot) return;
+      const unread = parseInt(msgBadge.textContent, 10) || 0;
+      const show = unread > 0 && !msgBadge.classList.contains('hidden');
+      menuDot.classList.toggle('hidden', !show);
+      menuBtn.classList.toggle('has-unread', show);
+    }
+    if (msgBadge && menuDot) {
+      syncMsgDot();
+      if (typeof MutationObserver !== 'undefined') {
+        new MutationObserver(syncMsgDot).observe(msgBadge, {
+          childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['class']
+        });
+      }
+    }
+
     document.querySelectorAll('.sidebar [data-page]').forEach(btn => {
       btn.addEventListener('click', async () => {
         document.querySelectorAll('.sidebar [data-page]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(btn.dataset.page).classList.add('active');
-        sidebar.classList.remove('open');
+        setMenu(false);
         await refreshAll();
         renderAll();
       });

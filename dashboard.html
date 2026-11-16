@@ -9,7 +9,12 @@
 </head>
 <body class="app-shell">
   <header class="topbar">
-    <a class="brand" href="dashboard.html"><img class="brand-logo" src="logo.svg" alt="Petal-PH logo">Petal-PH</a>
+    <div class="topbar-left">
+      <button class="burger burger-menu" id="menuBtn" aria-label="Toggle sidebar" aria-expanded="false" aria-controls="sidebar">
+        <span class="burger-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+      </button>
+      <a class="brand" href="dashboard.html"><img class="brand-logo" src="logo.svg" alt="Petal-PH logo">Petal-PH</a>
+    </div>
     <div class="user-chip">
       <button class="icon-btn" id="msgBtn" title="Messages" aria-label="Messages">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C6.5 3 2 6.9 2 11.7c0 2.6 1.3 4.9 3.3 6.5-.1 1-.6 2.4-1.6 3.4 1.9.1 3.6-.6 4.7-1.4 1.1.3 2.3.5 3.6.5 5.5 0 10-3.9 10-8.7S17.5 3 12 3z"/></svg>
@@ -19,8 +24,8 @@
       <span id="avatarFallback" class="avatar avatar-fallback">U</span>
       <span id="userName" class="muted"></span>
     </div>
-    <button class="burger" id="menuBtn" aria-label="Menu">&#9776;</button>
   </header>
+  <div class="nav-backdrop" id="navBackdrop"></div>
   <div class="layout">
     <aside class="sidebar" id="sidebar">
       <button class="active" data-page="about">About</button>
@@ -164,6 +169,16 @@
     </div>
   </div>
 
+  <div id="receiptModal" class="modal receipt-modal hidden">
+    <div class="modal-card receipt-card">
+      <div class="receipt-actions">
+        <button type="button" class="btn btn-outline" id="receiptClose">Close</button>
+        <button type="button" class="btn" id="receiptPrint">Print</button>
+      </div>
+      <div id="receiptBody"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0" integrity="sha384-NNePyabYRaJyedI6EQAY7SV5Z8/0sQkuQ5WVfhKm0H+j0KSugkI2ZMNzw/QtzAWz" crossorigin="anonymous"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
@@ -179,15 +194,69 @@
     }
     if (!user) { PetalApp.logout(); }
 
+    /* ---------- Sidebar / burger ---------- */
     const sidebar = document.getElementById('sidebar');
-    document.getElementById('menuBtn').addEventListener('click', () => sidebar.classList.toggle('open'));
+    const menuBtn = document.getElementById('menuBtn');
+    const navBackdrop = document.getElementById('navBackdrop');
+    const layout = document.querySelector('.layout');
+    const mq = window.matchMedia('(max-width: 800px)');
+    const isMobile = () => mq.matches;
+
+    function syncTopbarHeight() {
+      const topbar = document.querySelector('.topbar');
+      if (topbar) document.documentElement.style.setProperty('--topbar-h', topbar.offsetHeight + 'px');
+    }
+
+    function setMenu(open) {
+      if (isMobile()) {
+        sidebar.classList.toggle('open', open);
+        navBackdrop.classList.toggle('open', open);
+        menuBtn.setAttribute('aria-expanded', String(open));
+        return;
+      }
+      sidebar.classList.remove('open');
+      navBackdrop.classList.remove('open');
+      layout.classList.toggle('nav-collapsed', !open);
+      menuBtn.setAttribute('aria-expanded', String(open));
+    }
+
+    menuBtn.addEventListener('click', () => {
+      setMenu(isMobile()
+        ? !sidebar.classList.contains('open')
+        : !layout.classList.contains('nav-collapsed'));
+    });
+    navBackdrop.addEventListener('click', () => setMenu(false));
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && isMobile() && sidebar.classList.contains('open')) setMenu(false);
+    });
+
+    function syncMenu() {
+      syncTopbarHeight();
+      if (isMobile()) {
+        layout.classList.remove('nav-collapsed');
+        sidebar.classList.remove('open');
+        navBackdrop.classList.remove('open');
+        menuBtn.setAttribute('aria-expanded', 'false');
+      } else {
+        sidebar.classList.remove('open');
+        navBackdrop.classList.remove('open');
+        menuBtn.setAttribute('aria-expanded', String(!layout.classList.contains('nav-collapsed')));
+      }
+    }
+    if (mq.addEventListener) mq.addEventListener('change', syncMenu);
+    else mq.addListener(syncMenu);
+    window.addEventListener('resize', syncTopbarHeight);
+    window.addEventListener('load', syncTopbarHeight);
+    syncTopbarHeight();
+    syncMenu();
+
     document.querySelectorAll('.sidebar [data-page]').forEach(btn => {
       btn.addEventListener('click', async () => {
         document.querySelectorAll('.sidebar [data-page]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(btn.dataset.page).classList.add('active');
-        sidebar.classList.remove('open');
+        if (isMobile()) setMenu(false);
         if (btn.dataset.page === 'track') { await PetalApp.loadOwn(); renderOrders(); }
         if (btn.dataset.page === 'profile') renderProfile();
       });
@@ -233,6 +302,12 @@
         if (document.getElementById('track').classList.contains('active')) renderOrders();
       } catch (err) {
         console.warn('Petal-PH: dashboard poll failed', err);
+        const status = err && err.status;
+        const text = String((err && (err.message || err.error_description)) || '');
+        if (status === 401 || text.includes('JWT')) {
+          console.error('Petal-PH: session expired during poll', err);
+          window.location.href = 'login.html?expired=1';
+        }
       }
     }, 10000);
 
@@ -267,7 +342,11 @@
       document.getElementById('orderQty').value = 1;
       document.getElementById('orderQty').max = p.stock;
       document.getElementById('orderAddress').value = user.location || '';
-      document.getElementById('orderMsg').textContent = '';
+      const orderMsg = document.getElementById('orderMsg');
+      orderMsg.className = 'msg';
+      orderMsg.textContent = '';
+      const orderSubmit = document.querySelector('#orderForm button[type="submit"]');
+      if (orderSubmit) { orderSubmit.disabled = false; orderSubmit.textContent = orderSubmit.dataset.label || 'Confirm Order'; }
       document.getElementById('orderModal').classList.remove('hidden');
     };
     document.getElementById('cancelOrder').addEventListener('click', () => document.getElementById('orderModal').classList.add('hidden'));
@@ -296,11 +375,16 @@
       msg.className = 'msg';
       msg.textContent = 'Placing your order...';
       let res;
+      let placed = false;
       try {
         res = await PetalApp.placeOrder(productId, qty, payment, address, notes);
+        placed = !!(res && res.ok);
       } finally {
         orderBusy = false;
-        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset.label || 'Confirm Order'; }
+        if (submitBtn) {
+          submitBtn.textContent = submitBtn.dataset.label || 'Confirm Order';
+          if (!placed) submitBtn.disabled = false;
+        }
       }
       if (!res.ok) {
         msg.className = 'msg error';
@@ -308,9 +392,12 @@
         return;
       }
       msg.className = 'msg success';
-      msg.textContent = 'Order placed successfully!';
+      msg.innerHTML = 'Order placed successfully! ' +
+        '<button type="button" class="btn btn-sm" id="viewReceiptBtn">View receipt</button> ' +
+        '<button type="button" class="btn btn-sm btn-outline" id="orderDoneBtn">Done</button>';
+      document.getElementById('viewReceiptBtn').addEventListener('click', () => openReceipt(res.order));
+      document.getElementById('orderDoneBtn').addEventListener('click', () => document.getElementById('orderModal').classList.add('hidden'));
       renderProducts();
-      setTimeout(() => document.getElementById('orderModal').classList.add('hidden'), 700);
     });
 
     function renderOrders() {
@@ -323,10 +410,38 @@
         return `<tr>
         <td>${PetalApp.escapeHtml(o.id)}</td><td>${PetalApp.escapeHtml(o.product_name)}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(o.total)}</td><td>${PetalApp.formatMoney(fee)}</td><td>${PetalApp.formatMoney(total)}</td>
         <td>${PetalApp.escapeHtml(o.payment || '')}</td><td>${PetalApp.escapeHtml(o.status)}</td><td>${o.delivery_personnel ? PetalApp.escapeHtml(o.delivery_personnel) + ' — ' : ''}${PetalApp.escapeHtml(o.delivery_status || 'Preparing')}</td><td>${new Date(o.created_at).toLocaleString()}</td>
-        <td>${canCancel ? `<button class="btn btn-sm btn-danger" onclick="cancelOrder(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Cancel</button>` : ''}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="viewReceipt(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Receipt</button>
+          ${canCancel ? `<button class="btn btn-sm btn-danger" onclick="cancelOrder(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Cancel</button>` : ''}
+        </td>
       </tr>`;
       }).join('') || '<tr><td colspan="11">No orders yet.</td></tr>';
     }
+
+    /* ---------- Receipt ---------- */
+    const receiptModal = document.getElementById('receiptModal');
+    const receiptBody = document.getElementById('receiptBody');
+
+    function openReceipt(order) {
+      const o = Array.isArray(order) ? (order[0] || {}) : (order || {});
+      receiptBody.innerHTML = PetalApp.renderReceiptHtml(o, PetalApp.getMyProfile() || user);
+      receiptModal.classList.remove('hidden');
+    }
+
+    function closeReceipt() {
+      receiptModal.classList.add('hidden');
+      receiptBody.innerHTML = '';
+    }
+
+    window.viewReceipt = (orderId) => {
+      const order = PetalApp.getMyOrders().find(o => o.id === orderId);
+      if (order) openReceipt(order);
+    };
+
+    document.getElementById('receiptClose').addEventListener('click', closeReceipt);
+    document.getElementById('receiptPrint').addEventListener('click', () => window.print());
+    receiptModal.addEventListener('click', e => { if (e.target === receiptModal) closeReceipt(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeReceipt(); });
 
     window.cancelOrder = async (orderId) => {
       if (!confirm('Cancel this order?')) return;

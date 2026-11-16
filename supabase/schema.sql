@@ -56,7 +56,16 @@ create table if not exists public.orders (
   delivery_fee numeric default 0,
   delivery_status text default 'Preparing',
   delivery_date date,
-  created_at timestamptz default now()
+  dest_lat double precision,
+  dest_lng double precision,
+  courier_lat double precision,
+  courier_lng double precision,
+  courier_updated_at timestamptz,
+  created_at timestamptz default now(),
+  constraint orders_dest_lat_check check (dest_lat is null or (dest_lat >= -90 and dest_lat <= 90)),
+  constraint orders_dest_lng_check check (dest_lng is null or (dest_lng >= -180 and dest_lng <= 180)),
+  constraint orders_courier_lat_check check (courier_lat is null or (courier_lat >= -90 and courier_lat <= 90)),
+  constraint orders_courier_lng_check check (courier_lng is null or (courier_lng >= -180 and courier_lng <= 180))
 );
 
 create table if not exists public.messages (
@@ -139,8 +148,8 @@ create policy "profiles update own or admin" on public.profiles
   with check ((id = auth.uid() and role = public.my_role()) or public.is_admin());
 create policy "profiles delete admin" on public.profiles
   for delete using (public.is_admin());
+-- Non-admins cannot change email, role, created_at, id, disabled, or deleted_at
 
--- Non-admins cannot change email, role, created_at, or id
 create or replace function public.profiles_update_guard()
 returns trigger
 language plpgsql
@@ -160,6 +169,12 @@ begin
     end if;
     if new.id <> old.id then
       raise exception 'You cannot change your account id';
+    end if;
+    if new.disabled <> old.disabled then
+      raise exception 'You cannot change account status';
+    end if;
+    if new.deleted_at is distinct from old.deleted_at then
+      raise exception 'You cannot change account status';
     end if;
   end if;
   return new;
@@ -263,7 +278,9 @@ create or replace function public.place_order(
   p_qty integer,
   p_payment text,
   p_address text,
-  p_notes text default ''
+  p_notes text default '',
+  p_dest_lat double precision default null,
+  p_dest_lng double precision default null
 )
 returns public.orders
 language plpgsql
@@ -304,6 +321,16 @@ begin
     raise exception 'Invalid payment method';
   end if;
 
+  if p_dest_lat is not null and (p_dest_lat < -90 or p_dest_lat > 90) then
+    raise exception 'Invalid latitude';
+  end if;
+  if p_dest_lng is not null and (p_dest_lng < -180 or p_dest_lng > 180) then
+    raise exception 'Invalid longitude';
+  end if;
+  if (p_dest_lat is null) <> (p_dest_lng is null) then
+    raise exception 'Both latitude and longitude are required';
+  end if;
+
   select * into v_product from public.products where id = p_product_id for update;
   if v_product.id is null then
     raise exception 'Product not found';
@@ -319,11 +346,13 @@ begin
 
   insert into public.orders (
     user_id, user_email, user_name, product_id, product_name, season,
-    qty, total, payment, address, notes, status, delivery_status
+    qty, total, payment, address, notes, status, delivery_status,
+    dest_lat, dest_lng
   ) values (
     auth.uid(), v_profile.email, v_profile.nickname, v_product.id, v_product.name, v_product.season,
     p_qty, v_product.price * p_qty, p_payment, btrim(p_address), coalesce(p_notes, ''),
-    'Pending', 'Preparing'
+    'Pending', 'Preparing',
+    p_dest_lat, p_dest_lng
   )
   returning * into v_order;
 
@@ -403,12 +432,110 @@ begin
 end;
 $$;
 
-revoke all on function public.place_order(uuid, integer, text, text, text) from public;
+create or replace function public.admin_set_courier_location(
+  p_order_id uuid,
+  p_lat double precision,
+  p_lng double precision
+)
+returns public.orders
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order public.orders;
+begin
+  if not public.is_admin() then
+    raise exception 'Admin only';
+  end if;
+
+  if p_lat is null or p_lng is null
+     or p_lat < -90 or p_lat > 90
+     or p_lng < -180 or p_lng > 180 then
+    raise exception 'Invalid coordinates';
+  end if;
+
+  select * into v_order from public.orders where id = p_order_id for update;
+  if v_order.id is null then
+    raise exception 'Order not found';
+  end if;
+
+  if v_order.delivery_status <> 'In transit' then
+    raise exception 'Location can only be shared while the order is out for delivery';
+  end if;
+
+  update public.orders
+     set courier_lat = p_lat,
+         courier_lng = p_lng,
+         courier_updated_at = now()
+   where id = p_order_id
+  returning * into v_order;
+
+  return v_order;
+end;
+$$;
+
+-- Clear the courier position once the order is Delivered, Completed,
+-- Cancelled or Rejected.
+create or replace function public.orders_clear_courier_location()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.delivery_status = 'Delivered'
+     or new.status in ('Completed', 'Cancelled', 'Rejected') then
+    new.courier_lat := null;
+    new.courier_lng := null;
+    new.courier_updated_at := null;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_clear_courier_location on public.orders;
+create trigger orders_clear_courier_location
+  before insert or update on public.orders
+  for each row execute function public.orders_clear_courier_location();
+
+-- Customers may never write the map columns directly (defense in depth).
+create or replace function public.orders_guard_courier_columns()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'UPDATE' and not public.is_admin() then
+    if new.status in ('Completed', 'Cancelled', 'Rejected') or new.delivery_status = 'Delivered' then
+      return new;
+    end if;
+    if new.dest_lat is distinct from old.dest_lat
+       or new.dest_lng is distinct from old.dest_lng
+       or new.courier_lat is distinct from old.courier_lat
+       or new.courier_lng is distinct from old.courier_lng
+       or new.courier_updated_at is distinct from old.courier_updated_at then
+      raise exception 'You cannot change map location columns';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_guard_courier_columns on public.orders;
+create trigger orders_guard_courier_columns
+  before update on public.orders
+  for each row execute function public.orders_guard_courier_columns();
+
+revoke all on function public.place_order(uuid, integer, text, text, text, double precision, double precision) from public;
 revoke all on function public.set_order_status(uuid, text) from public;
 revoke all on function public.cancel_my_order(uuid) from public;
-grant execute on function public.place_order(uuid, integer, text, text, text) to authenticated;
+revoke all on function public.admin_set_courier_location(uuid, double precision, double precision) from public;
+grant execute on function public.place_order(uuid, integer, text, text, text, double precision, double precision) to authenticated;
 grant execute on function public.set_order_status(uuid, text) to authenticated;
 grant execute on function public.cancel_my_order(uuid) to authenticated;
+grant execute on function public.admin_set_courier_location(uuid, double precision, double precision) to authenticated;
 
 -- 6. Grants ---------------------------------------------------
 

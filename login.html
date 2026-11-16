@@ -89,6 +89,12 @@
       window.location.href = session.role === 'admin' ? 'admin.html' : 'dashboard.html';
     }
 
+    if (new URLSearchParams(window.location.search).get('expired') === '1') {
+      const expiredMsg = document.getElementById('loginMsg');
+      expiredMsg.className = 'msg error';
+      expiredMsg.textContent = 'Your session ended. Please log in again.';
+    }
+
     document.querySelectorAll('[data-toggle]').forEach(cb => {
       cb.addEventListener('change', () => {
         const input = document.getElementById(cb.dataset.toggle);

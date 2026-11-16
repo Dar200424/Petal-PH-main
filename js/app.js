@@ -38,8 +38,17 @@ const PetalApp = (() => {
         cache.profile = null;
       }
     }
-    sb.auth.onAuthStateChange((_event, session) => {
+    sb.auth.onAuthStateChange((event, session) => {
+      console.info('Petal-PH auth event:', event, session ? 'session' : 'no session');
       cache.me = session ? session.user : null;
+      if (event === 'SIGNED_OUT') {
+        const page = (window.location.pathname.split('/').pop() || '').toLowerCase();
+        if (page === 'dashboard.html' || page === 'messages.html' || page === 'admin.html') {
+          cache.me = null;
+          cache.profile = null;
+          window.location.href = 'login.html?expired=1';
+        }
+      }
     });
     initialized = true;
   }
@@ -477,6 +486,96 @@ const PetalApp = (() => {
       .replace(/'/g, '&#39;');
   }
 
+  /* ---------- Receipt ---------- */
+
+  function receiptNo(id) {
+    return 'PH-' + String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase();
+  }
+
+  function renderReceiptHtml(order, profile) {
+    const o = order || {};
+    const p = profile || {};
+    const e = escapeHtml;
+
+    const qty = Number(o.qty) || 0;
+    const total = Number(o.total) || 0;
+    const fee = Number(o.delivery_fee) || 0;
+    const grand = total + fee;
+    const unit = qty > 0 ? total / qty : total;
+    const status = o.status || 'Pending';
+    const pendingFee = fee === 0 && status === 'Pending';
+    const closed = status === 'Cancelled' || status === 'Rejected';
+
+    const created = o.created_at ? new Date(o.created_at) : null;
+    const dateStr = created && !isNaN(created.getTime())
+      ? created.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+      : '';
+
+    const name = p.nickname || o.user_name || '';
+    const email = p.email || o.user_email || '';
+    const phone = p.phone || '';
+    const address = o.address || 'Not provided';
+    const notes = o.notes || '';
+    const courier = o.delivery_personnel
+      ? o.delivery_personnel + ' — ' + (o.delivery_status || 'Preparing')
+      : (o.delivery_status || 'Preparing');
+
+    const deliveryDate = o.delivery_date ? new Date(String(o.delivery_date) + 'T00:00:00') : null;
+    const deliveryDateStr = deliveryDate && !isNaN(deliveryDate.getTime())
+      ? deliveryDate.toLocaleDateString('en-PH', { dateStyle: 'medium' })
+      : '';
+
+    return `<div class="receipt" id="receiptPrintable">
+      <header class="receipt-head">
+        <div class="receipt-brand">Petal-PH</div>
+        <div class="receipt-title">Order Receipt</div>
+      </header>
+      <div class="receipt-meta">
+        <span>Receipt No. <strong>${e(receiptNo(o.id))}</strong></span>
+        <span>Date <strong>${e(dateStr)}</strong></span>
+      </div>
+      <section class="receipt-block">
+        <h4>Bill To</h4>
+        <p>${e(name || 'Customer')}</p>
+        ${email ? `<p>${e(email)}</p>` : ''}
+        ${phone ? `<p>${e(phone)}</p>` : ''}
+      </section>
+      <section class="receipt-block">
+        <h4>Delivery</h4>
+        <p>${e(address)}</p>
+        ${notes ? `<p><strong>Notes:</strong> ${e(notes)}</p>` : ''}
+      </section>
+      <table class="receipt-items">
+        <thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="item-name">${e(o.product_name || 'Order')}</td>
+            <td>${qty}</td>
+            <td>${e(formatMoney(total))}</td>
+          </tr>
+        </tbody>
+      </table>
+      <table class="receipt-totals">
+        <tbody>
+          <tr><td>Subtotal${qty > 1 ? ' (' + e(formatMoney(unit)) + ' each)' : ''}</td><td>${e(formatMoney(total))}</td></tr>
+          <tr><td>Delivery fee</td><td>${pendingFee ? 'to be confirmed' : e(formatMoney(fee))}</td></tr>
+          <tr class="grand"><td>Total</td><td>${e(formatMoney(grand))}</td></tr>
+        </tbody>
+      </table>
+      <div class="receipt-status">
+        <span>Payment: <b>${e(o.payment || 'Not specified')}</b></span>
+        <span>Status: <b>${e(status)}</b></span>
+        <span>Delivery: <b>${e(courier)}</b></span>
+        ${deliveryDateStr ? `<span>Scheduled: <b>${e(deliveryDateStr)}</b></span>` : ''}
+      </div>
+      ${closed ? `<div class="receipt-stamp">${status === 'Rejected' ? 'REJECTED' : 'CANCELLED'}</div>` : ''}
+      <div class="receipt-foot">
+        <span class="receipt-thanks">Thank you for choosing Petal-PH.</span>
+        <span class="receipt-disclaimer">This is an order receipt, not an official BIR receipt.</span>
+      </div>
+    </div>`;
+  }
+
   return {
     FALLBACK_IMAGE, LOW_STOCK_THRESHOLD,
     ORDER_STATUS, DELIVERY_STATUS, ACTIVE_STATUSES,
@@ -492,6 +591,7 @@ const PetalApp = (() => {
     saveProduct, deleteProduct, setAvailability, setStock,
     softDeleteCustomer, restoreCustomer, addCourier, removeCourier,
     safeAvatar, revenueOf, bestSellers, mountBestSellerChart,
-    resizeImage, formatMoney, todayISO, anniversaryNotice, escapeHtml
+    resizeImage, formatMoney, todayISO, anniversaryNotice, escapeHtml,
+    receiptNo, renderReceiptHtml
   };
 })();

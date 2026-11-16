@@ -34,6 +34,9 @@ adds the new columns (`deleted_at`, `disabled`, `delivery_date`), security
 constraints, the `best_sellers` function, and updated triggers — all in a single
 transaction, safe to re-run.
 
+Then run `supabase/migrations/2026-11-16_profile-guard.sql` once in the Supabase
+SQL Editor so customers cannot re-enable or restore their own disabled account.
+
 ## Step 3 — Turn off email confirmation (demo mode)
 
 1. Left sidebar → **Authentication** → **Providers** → **Email**.
