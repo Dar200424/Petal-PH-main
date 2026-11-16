@@ -6,6 +6,14 @@
   <title>Petal-PH | Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    #orderModal .modal-card { max-height: 90vh; overflow-y: auto; }
+    .map-field { margin-bottom: .6rem; }
+    .petal-map { height: 220px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #e8efe9; }
+    .petal-pin { background: none; border: 0; }
+    .petal-pin-dot { display: block; width: 24px; height: 24px; border-radius: 50%; background: var(--primary); border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+  </style>
 </head>
 <body class="app-shell">
   <header class="topbar">
@@ -157,6 +165,16 @@
         <label>Delivery address
           <textarea id="orderAddress" rows="2" required></textarea>
         </label>
+        <div class="map-field">
+          <div class="muted" style="margin:0 0 .35rem; font-size:.9rem;">Delivery pin (optional)</div>
+          <div id="orderMap" class="petal-map"></div>
+          <div class="row" style="gap:.5rem; margin-top:.4rem; flex-wrap:wrap;">
+            <button type="button" class="btn btn-sm btn-outline" id="orderLocate">Use my current location</button>
+            <button type="button" class="btn btn-sm btn-outline" id="orderClearPin">Clear pin</button>
+          </div>
+          <div id="orderMapMsg" class="msg" style="margin:.4rem 0 0"></div>
+          <p class="muted" style="margin:.4rem 0 0; font-size:.8rem;">The pin helps our rider find you. It is optional.</p>
+        </div>
         <label>Delivery notes (optional)
           <textarea id="orderNotes" rows="3" placeholder="Any special instructions"></textarea>
         </label>
@@ -180,7 +198,8 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0" integrity="sha384-NNePyabYRaJyedI6EQAY7SV5Z8/0sQkuQ5WVfhKm0H+j0KSugkI2ZMNzw/QtzAWz" crossorigin="anonymous"></script>
-  <script src="js/config.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
     (async () => {
@@ -334,6 +353,77 @@
     }
     document.getElementById('seasonFilter').addEventListener('change', renderProducts);
 
+    let orderMap = null;
+    let orderMapMarker = null;
+    let orderMapPin = null;
+
+    const shopLat = Number(window.SHOP_LAT);
+    const shopLng = Number(window.SHOP_LNG);
+    const shopCenter = (isFinite(shopLat) && isFinite(shopLng) && Math.abs(shopLat) <= 90 && Math.abs(shopLng) <= 180)
+      ? [shopLat, shopLng]
+      : [7.0731, 125.6128];
+
+    function setOrderMapPin(latlng) {
+      orderMapPin = latlng ? [latlng[0], latlng[1]] : null;
+      const msg = document.getElementById('orderMapMsg');
+      if (!orderMap) return;
+      if (orderMapPin) {
+        if (!orderMapMarker) {
+          orderMapMarker = L.marker(orderMapPin, {
+            draggable: true,
+            autoPan: true,
+            icon: L.divIcon({
+              className: 'petal-pin',
+              html: '<span class="petal-pin-dot"></span>',
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            })
+          }).addTo(orderMap);
+          orderMapMarker.on('dragend', () => {
+            const p = orderMapMarker.getLatLng();
+            orderMapPin = [p.lat, p.lng];
+          });
+        } else {
+          orderMapMarker.setLatLng(orderMapPin);
+        }
+        if (msg) { msg.className = 'msg success'; msg.textContent = 'Delivery pin set.'; }
+      } else if (orderMapMarker) {
+        orderMap.removeLayer(orderMapMarker);
+        orderMapMarker = null;
+        if (msg) { msg.className = 'msg'; msg.textContent = ''; }
+      }
+    }
+
+    function ensureOrderMap() {
+      if (orderMap) return orderMap;
+      const el = document.getElementById('orderMap');
+      if (!el || !window.L || !L.map) return null;
+      orderMap = L.map(el, { scrollWheelZoom: false, zoomControl: true }).setView(shopCenter, 15);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(orderMap);
+      orderMap.on('click', (e) => setOrderMapPin([e.latlng.lat, e.latlng.lng]));
+      return orderMap;
+    }
+
+    document.getElementById('orderClearPin').addEventListener('click', () => setOrderMapPin(null));
+    document.getElementById('orderLocate').addEventListener('click', () => {
+      const msg = document.getElementById('orderMapMsg');
+      if (!navigator.geolocation) {
+        if (msg) { msg.className = 'msg error'; msg.textContent = 'Geolocation is not available. Tap the map to set the pin.'; }
+        return;
+      }
+      if (msg) { msg.className = 'msg'; msg.textContent = 'Locating...'; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { setOrderMapPin([pos.coords.latitude, pos.coords.longitude]); },
+        () => {
+          if (msg) { msg.className = 'msg error'; msg.textContent = 'Could not get your location. Tap the map to set the pin.'; }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    });
+
     window.openOrder = (id) => {
       const p = PetalApp.getProducts().find(x => x.id === id);
       if (!p || !p.available || p.stock <= 0) return;
@@ -347,7 +437,13 @@
       orderMsg.textContent = '';
       const orderSubmit = document.querySelector('#orderForm button[type="submit"]');
       if (orderSubmit) { orderSubmit.disabled = false; orderSubmit.textContent = orderSubmit.dataset.label || 'Confirm Order'; }
+      setOrderMapPin(null);
+      const mapMsg = document.getElementById('orderMapMsg');
+      if (mapMsg) { mapMsg.className = 'msg'; mapMsg.textContent = ''; }
       document.getElementById('orderModal').classList.remove('hidden');
+      const map = ensureOrderMap();
+      if (map) { map.invalidateSize(); setTimeout(() => map.invalidateSize(), 80); }
+      else if (mapMsg) { mapMsg.className = 'msg error'; mapMsg.textContent = 'The map could not load. You can still place your order without a pin.'; }
     };
     document.getElementById('cancelOrder').addEventListener('click', () => document.getElementById('orderModal').classList.add('hidden'));
     document.getElementById('orderModal').addEventListener('click', (e) => { if (e.target.id === 'orderModal') e.currentTarget.classList.add('hidden'); });
@@ -376,8 +472,9 @@
       msg.textContent = 'Placing your order...';
       let res;
       let placed = false;
+      const pin = orderMapPin;
       try {
-        res = await PetalApp.placeOrder(productId, qty, payment, address, notes);
+        res = await PetalApp.placeOrder(productId, qty, payment, address, notes, pin ? pin[0] : null, pin ? pin[1] : null);
         placed = !!(res && res.ok);
       } finally {
         orderBusy = false;

@@ -163,16 +163,22 @@ const PetalApp = (() => {
   function getSession() { return cache.me ? { id: cache.me.id, email: cache.me.email, role: cache.profile ? cache.profile.role : 'user' } : null; }
   function getMessageUser(userId) { return cache.profile && cache.profile.id === userId ? cache.profile : null; }
 
-  async function placeOrder(productId, qty, payment, address, notes) {
+  async function placeOrder(productId, qty, payment, address, notes, destLat, destLng) {
     if (cache.profile && (cache.profile.deleted_at || cache.profile.disabled)) {
       return { ok: false, message: 'Account disabled' };
     }
+    const toNum = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+    const lat = toNum(destLat);
+    const lng = toNum(destLng);
+    const hasPin = isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
     const { data, error } = await sb.rpc('place_order', {
       p_product_id: productId,
       p_qty: qty,
       p_payment: payment,
       p_address: address,
-      p_notes: notes || ''
+      p_notes: notes || '',
+      p_dest_lat: hasPin ? lat : null,
+      p_dest_lng: hasPin ? lng : null
     });
     if (error) return { ok: false, message: error.message || 'Could not place order.' };
     await loadOwn();
