@@ -3,5 +3,5 @@ window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXB
 
 // Petal-PH shop location used as the centre of the delivery map.
 // Set these to the real shop coordinates (latitude, longitude).
-window.SHOP_LAT = 7.0731;
-window.SHOP_LNG = 125.6128;
+window.SHOP_LAT = 7.06574;
+window.SHOP_LNG = 125.6108;
