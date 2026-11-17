@@ -343,14 +343,12 @@ const PetalApp = (() => {
   async function softDeleteCustomer(userId) {
     const { error } = await sb.from('profiles').update({ deleted_at: new Date().toISOString() }).eq('id', userId);
     if (error) return { ok: false, message: error.message };
-    await refreshReports();
     return { ok: true };
   }
 
   async function restoreCustomer(userId) {
     const { error } = await sb.from('profiles').update({ deleted_at: null }).eq('id', userId);
     if (error) return { ok: false, message: error.message };
-    await refreshReports();
     return { ok: true };
   }
 
