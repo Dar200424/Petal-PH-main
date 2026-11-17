@@ -13,6 +13,9 @@
     .petal-map { height: 220px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #e8efe9; }
     .petal-pin { background: none; border: 0; }
     .petal-pin-dot { display: block; width: 24px; height: 24px; border-radius: 50%; background: var(--primary); border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+    .petal-track-map { height: 320px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #e8efe9; }
+    .track-legend { font-size: .85rem; color: var(--muted); flex-wrap: wrap; gap: .9rem; }
+    .track-legend .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .3rem; }
   </style>
 </head>
 <body class="app-shell">
@@ -194,6 +197,24 @@
         <button type="button" class="btn" id="receiptPrint">Print</button>
       </div>
       <div id="receiptBody"></div>
+    </div>
+  </div>
+
+  <!-- Track on map modal -->
+  <div id="trackModal" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="trackTitle" style="margin-top:0">Track on map</h3>
+      <div id="trackStatus" class="muted" style="margin:.2rem 0 .7rem;"></div>
+      <div class="row track-legend">
+        <span><i class="dot" style="background:#2e7d5b"></i>Shop</span>
+        <span><i class="dot" style="background:#5b8def"></i>Destination</span>
+        <span><i class="dot" style="background:#c94f7c"></i>Courier</span>
+      </div>
+      <div id="trackMap" class="petal-track-map" style="margin:.7rem 0"></div>
+      <div id="trackMapMsg" class="msg" style="margin:.3rem 0 0"></div>
+      <div class="row" style="justify-content:flex-end; margin-top:1rem;">
+        <button class="btn btn-outline" id="trackClose" type="button">Close</button>
+      </div>
     </div>
   </div>
 
@@ -497,6 +518,181 @@
       renderProducts();
     });
 
+    /* ---------- Track on map ---------- */
+    const TRACK_COLORS = { shop: '#2e7d5b', destination: '#5b8def', courier: '#c94f7c' };
+    const TRACK_PIN_PATH = 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z';
+    let trackMap = null;
+    let trackLayerGroup = null;
+    let trackShopMarker = null;
+    let trackDestMarker = null;
+    let trackCourierMarker = null;
+    let trackOrderId = null;
+    let trackTimerId = null;
+    const trackModalEl = document.getElementById('trackModal');
+
+    function trackPinIcon(color) {
+      return L.divIcon({
+        className: 'track-pin',
+        html: '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="' + color + '" fill-rule="evenodd" d="' + TRACK_PIN_PATH + '"/></svg>',
+        iconSize: [26, 26],
+        iconAnchor: [13, 25]
+      });
+    }
+
+    function trackCoord(value, max) {
+      if (value === null || value === undefined || value === '') return null;
+      const n = Number(value);
+      if (!isFinite(n) || Math.abs(n) > max) return null;
+      return n;
+    }
+
+    function trackShopCenter() {
+      const lat = Number(window.SHOP_LAT);
+      const lng = Number(window.SHOP_LNG);
+      if (isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) return [lat, lng];
+      return [7.0731, 125.6128];
+    }
+
+    function ensureTrackMap() {
+      if (trackMap) return trackMap;
+      const el = document.getElementById('trackMap');
+      if (!el || !window.L || !L.map) return null;
+      trackMap = L.map(el, { scrollWheelZoom: false }).setView(trackShopCenter(), 15);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(trackMap);
+      trackLayerGroup = L.layerGroup().addTo(trackMap);
+      return trackMap;
+    }
+
+    function minutesAgo(ts) {
+      if (!ts) return null;
+      const d = new Date(ts);
+      if (!isFinite(d.getTime())) return null;
+      return Math.floor((Date.now() - d.getTime()) / 60000);
+    }
+
+    function updateTrackStatus(order) {
+      const statusEl = document.getElementById('trackStatus');
+      if (!statusEl) return;
+      const delivery = order.delivery_status || 'Preparing';
+      let line = PetalApp.escapeHtml(order.status) + ' — ' + PetalApp.escapeHtml(delivery);
+      if (order.delivery_personnel) line += ' · Courier: ' + PetalApp.escapeHtml(order.delivery_personnel);
+      const mins = minutesAgo(order.courier_updated_at);
+      if (mins !== null) {
+        line += ' · ' + (mins > 10 ? 'Courier location last seen ' + mins + ' min ago' : mins < 1 ? 'Courier location updated just now' : 'Courier location updated ' + mins + ' min ago');
+      }
+      statusEl.textContent = line;
+    }
+
+    function setTrackMarkers(order) {
+      if (!trackLayerGroup) return;
+      trackLayerGroup.clearLayers();
+      trackShopMarker = trackDestMarker = trackCourierMarker = null;
+
+      const shop = trackShopCenter();
+      trackShopMarker = L.marker(shop, { icon: trackPinIcon(TRACK_COLORS.shop) }).addTo(trackLayerGroup);
+      const points = [shop];
+
+      const destLat = trackCoord(order.dest_lat, 90);
+      const destLng = trackCoord(order.dest_lng, 180);
+      if (destLat !== null && destLng !== null) {
+        const dest = [destLat, destLng];
+        trackDestMarker = L.marker(dest, { icon: trackPinIcon(TRACK_COLORS.destination) }).addTo(trackLayerGroup);
+        points.push(dest);
+      }
+
+      const curLat = trackCoord(order.courier_lat, 90);
+      const curLng = trackCoord(order.courier_lng, 180);
+      if (curLat !== null && curLng !== null) {
+        trackCourierMarker = L.marker([curLat, curLng], { icon: trackPinIcon(TRACK_COLORS.courier) }).addTo(trackLayerGroup);
+        points.push([curLat, curLng]);
+      }
+
+      if (points.length > 1) trackMap.fitBounds(points, { padding: [40, 40], maxZoom: 16 });
+    }
+
+    function moveTrackCourier(order) {
+      if (!trackOrderId) return;
+      const curLat = trackCoord(order.courier_lat, 90);
+      const curLng = trackCoord(order.courier_lng, 180);
+      if (curLat === null || curLng === null) {
+        if (trackCourierMarker) { trackLayerGroup.removeLayer(trackCourierMarker); trackCourierMarker = null; }
+        return;
+      }
+      if (!trackCourierMarker) {
+        trackCourierMarker = L.marker([curLat, curLng], { icon: trackPinIcon(TRACK_COLORS.courier) }).addTo(trackLayerGroup);
+      } else {
+        trackCourierMarker.setLatLng([curLat, curLng]);
+      }
+    }
+
+    function closeTrackModal() {
+      trackModalEl.classList.add('hidden');
+      if (trackTimerId !== null) { clearInterval(trackTimerId); trackTimerId = null; }
+      trackOrderId = null;
+    }
+    window.closeTrackModal = closeTrackModal;
+
+    window.trackOrder = (id) => {
+      const order = PetalApp.getMyOrders().find(o => o.id === id);
+      if (!order) return;
+      trackOrderId = id;
+
+      const title = document.getElementById('trackTitle');
+      if (title) title.textContent = 'Track on map — ' + PetalApp.escapeHtml(order.id);
+      updateTrackStatus(order);
+
+      const mapMsg = document.getElementById('trackMapMsg');
+      const msgs = [];
+      const hasDest = trackCoord(order.dest_lat, 90) !== null && trackCoord(order.dest_lng, 180) !== null;
+      const hasCourier = trackCoord(order.courier_lat, 90) !== null && trackCoord(order.courier_lng, 180) !== null;
+      if (!hasDest) msgs.push('No map location was set for this order.');
+      if (!hasCourier) msgs.push("The courier's location is not available yet.");
+      if (mapMsg) { mapMsg.className = 'msg'; mapMsg.textContent = msgs.join(' '); }
+
+      trackModalEl.classList.remove('hidden');
+
+      const map = ensureTrackMap();
+      if (map) {
+        map.invalidateSize();
+        setTimeout(() => map.invalidateSize(), 80);
+        setTrackMarkers(order);
+      } else if (mapMsg) {
+        mapMsg.className = 'msg error';
+        mapMsg.textContent = 'The map could not load. Check your internet connection.';
+      }
+
+      if (trackTimerId !== null) { clearInterval(trackTimerId); trackTimerId = null; }
+      trackTimerId = setInterval(async () => {
+        if (!trackOrderId) return;
+        try {
+          await PetalApp.loadOwn();
+          const refreshed = PetalApp.getMyOrders().find(o => o.id === trackOrderId);
+          if (refreshed) {
+            moveTrackCourier(refreshed);
+            updateTrackStatus(refreshed);
+          }
+        } catch (err) {
+          console.warn('Petal-PH: track refresh failed', err);
+        }
+      }, 10000);
+    };
+
+    const trackClose = document.getElementById('trackClose');
+    trackClose.addEventListener('click', closeTrackModal);
+    trackModalEl.addEventListener('click', (e) => { if (e.target === trackModalEl) closeTrackModal(); });
+
+    window.closeTrackModal = closeTrackModal;
+    window.__trackElRef = trackModalEl;
+    window.__trackState = () => ({ id: trackOrderId, timer: trackTimerId });
+    window.__trackMap = () => trackMap;
+    window.__trackGroups = () => trackLayerGroup;
+    window.__trackMarkers = () => ({ shop: trackShopMarker, dest: trackDestMarker, courier: trackCourierMarker });
+    window.__trackGroups = () => trackLayerGroup;
+    window.__trackMarkers = () => ({ shop: trackShopMarker, dest: trackDestMarker, courier: trackCourierMarker });
+
     function renderOrders() {
       const mine = PetalApp.getMyOrders();
       const body = document.getElementById('ordersBody');
@@ -509,6 +705,7 @@
         <td>${PetalApp.escapeHtml(o.payment || '')}</td><td>${PetalApp.escapeHtml(o.status)}</td><td>${o.delivery_personnel ? PetalApp.escapeHtml(o.delivery_personnel) + ' — ' : ''}${PetalApp.escapeHtml(o.delivery_status || 'Preparing')}</td><td>${new Date(o.created_at).toLocaleString()}</td>
         <td>
           <button class="btn btn-sm btn-outline" onclick="viewReceipt(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Receipt</button>
+          ${o.status !== 'Cancelled' && o.status !== 'Rejected' ? `<button class="btn btn-sm btn-outline" onclick="trackOrder(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Track on map</button>` : ''}
           ${canCancel ? `<button class="btn btn-sm btn-danger" onclick="cancelOrder(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Cancel</button>` : ''}
         </td>
       </tr>`;
