@@ -37,6 +37,15 @@ transaction, safe to re-run.
 Then run `supabase/migrations/2026-11-16_profile-guard.sql` once in the Supabase
 SQL Editor so customers cannot re-enable or restore their own disabled account.
 
+## Step 2.1 — Upgrade messages (photo, voice, reactions, pin, unsend)
+
+1. Open `supabase/migrations/2026-11-18_messages-upgrade.sql` and copy its contents.
+2. Paste into the Supabase SQL Editor and click **Run**.
+   - It is idempotent: safe to run more than once, all in one transaction.
+   - It adds media columns to `messages`, creates the private `chat-media`
+     storage bucket, the `message_reactions` table, and the `unsend_message` /
+     `pin_message` RPCs.
+
 ## Step 3 — Turn off email confirmation (demo mode)
 
 1. Left sidebar → **Authentication** → **Providers** → **Email**.

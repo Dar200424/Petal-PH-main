@@ -6,9 +6,10 @@ const PetalApp = (() => {
   const DELIVERY_STATUS = ['Preparing', 'In transit', 'Delivered', 'Failed'];
   const ACTIVE_STATUSES = ['Pending', 'Accepted'];
 
-  const cache = { me: null, profile: null, products: [], orders: [], messages: [], couriers: [] };
-  let sb = null;
-  let initialized = false;
+const cache = { me: null, profile: null, products: [], orders: [], messages: [], couriers: [], reactions: [] };
+let sb = null;
+let initialized = false;
+let attachmentUrlCache = new Map();
 
   function isConfigured() {
     return !!(window.SUPABASE_URL && window.SUPABASE_ANON_KEY &&
@@ -137,6 +138,7 @@ const PetalApp = (() => {
     cache.orders = orders.data || [];
     cache.messages = messages.data || [];
     cache.couriers = couriers.data || [];
+    await loadReactions(cache.messages.map(m => m.id));
   }
 
   async function loadOwn() {
@@ -152,6 +154,42 @@ const PetalApp = (() => {
     cache.profile = profile.data || null;
     cache.orders = orders.data || [];
     cache.messages = messages.data || [];
+    await loadReactions(cache.messages.map(m => m.id));
+  }
+
+  async function loadReactions(messageIds) {
+    if (!messageIds || !messageIds.length) { cache.reactions = []; return; }
+    const { data, error } = await sb.from('message_reactions').select('*').in('message_id', messageIds);
+    if (error) { console.warn('Petal-PH: reactions load failed', error); return; }
+    cache.reactions = data || [];
+  }
+
+  const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+  const ALLOWED_VOICE_MIMES = ['audio/webm', 'audio/ogg', 'audio/mp4'];
+  const ALLOWED_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  const MAX_FILE_BYTES = 5 * 1024 * 1024;
+  const MAX_VOICE_SECONDS = 120;
+
+  function mimeExt(mime) {
+    const map = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'mp4' };
+    return map[mime] || 'bin';
+  }
+
+  function dataUrlToBlob(dataUrl) {
+    const parts = dataUrl.split(',');
+    const mime = parts[0] && parts[0].match(/:(.*?);/);
+    const bstr = atob(parts[1] || '');
+    const n = bstr.length;
+    const u8 = new Uint8Array(n);
+    for (let i = 0; i < n; i++) u8[i] = bstr.charCodeAt(i);
+    return new Blob([u8], { type: (mime && mime[1]) || 'application/octet-stream' });
+  }
+
+  function messagePreview(m) {
+    if (m.deleted_at) return 'Message unsent';
+    if (m.kind === 'image') return '📷 Photo';
+    if (m.kind === 'voice') return '🎤 Voice message';
+    return m.body || '';
   }
 
   function getMyProfile() { return cache.profile; }
@@ -280,7 +318,7 @@ const PetalApp = (() => {
   function unreadCount(userId, role) {
     const col = role === 'user' ? 'read_by_user' : 'read_by_admin';
     const from = role === 'user' ? 'admin' : 'user';
-    return cache.messages.filter(m => m.user_id === userId && m.sender === from && !m[col]).length;
+    return cache.messages.filter(m => m.user_id === userId && m.sender === from && !m[col] && !m.deleted_at).length;
   }
 
   function conversationList() {
@@ -288,11 +326,123 @@ const PetalApp = (() => {
     cache.messages.forEach(m => {
       const u = byUser[m.user_id] || (byUser[m.user_id] = { last: null, unread: 0 });
       if (!u.last || new Date(m.created_at) >= new Date(u.last.created_at)) u.last = m;
-      if (m.sender === 'user' && !m.read_by_admin) u.unread++;
+      if (m.sender === 'user' && !m.read_by_admin && !m.deleted_at) u.unread++;
     });
     return Object.entries(byUser)
-      .map(([userId, v]) => ({ userId, last: v.last, unread: v.unread }))
+      .map(([userId, v]) => ({ userId, last: v.last, unread: v.unread, preview: messagePreview(v.last || {}) }))
       .sort((a, b) => new Date(b.last.created_at) - new Date(a.last.created_at));
+  }
+
+  async function sendImage(userId, from, file) {
+    if (!ALLOWED_IMAGE_MIMES.includes(file.type)) return { ok: false, message: 'Unsupported image type.' };
+    if (file.size > MAX_FILE_BYTES) return { ok: false, message: 'Image too large (max 5 MB).' };
+    const dataUrl = await new Promise((resolve, reject) => {
+      resizeImage(file, 1280, resolve);
+    });
+    const blob = dataUrlToBlob(dataUrl);
+    const path = `${userId}/${crypto.randomUUID()}.jpg`;
+    const { error: upError } = await sb.storage.from('chat-media').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (upError) return { ok: false, message: upError.message || 'Upload failed.' };
+    const row = {
+      user_id: userId,
+      sender: from,
+      body: '',
+      kind: 'image',
+      attachment_path: path,
+      attachment_mime: 'image/jpeg',
+      read_by_user: from === 'user',
+      read_by_admin: from === 'admin'
+    };
+    const { error } = await sb.from('messages').insert(row);
+    if (error) {
+      await sb.storage.from('chat-media').remove([path]);
+      return { ok: false, message: error.message };
+    }
+    await loadOwn();
+    return { ok: true };
+  }
+
+  async function sendVoice(userId, from, blob, seconds) {
+    if (!ALLOWED_VOICE_MIMES.includes(blob.type)) return { ok: false, message: 'Unsupported voice format.' };
+    if (blob.size > MAX_FILE_BYTES) return { ok: false, message: 'Voice clip too large (max 5 MB).' };
+    if (!seconds || seconds > MAX_VOICE_SECONDS) return { ok: false, message: 'Voice message too long (max 2 minutes).' };
+    const path = `${userId}/${crypto.randomUUID()}.${mimeExt(blob.type)}`;
+    const { error: upError } = await sb.storage.from('chat-media').upload(path, blob, { contentType: blob.type, upsert: false });
+    if (upError) return { ok: false, message: upError.message || 'Upload failed.' };
+    const row = {
+      user_id: userId,
+      sender: from,
+      body: '',
+      kind: 'voice',
+      attachment_path: path,
+      attachment_mime: blob.type,
+      duration_seconds: Math.floor(seconds),
+      read_by_user: from === 'user',
+      read_by_admin: from === 'admin'
+    };
+    const { error } = await sb.from('messages').insert(row);
+    if (error) {
+      await sb.storage.from('chat-media').remove([path]);
+      return { ok: false, message: error.message };
+    }
+    await loadOwn();
+    return { ok: true };
+  }
+
+  async function getAttachmentUrl(path) {
+    if (!path) return null;
+    const now = Date.now();
+    const c = attachmentUrlCache.get(path);
+    if (c && now < c.expiry - 60000) return c.url;
+    const { data, error } = await sb.storage.from('chat-media').createSignedUrl(path, 3600);
+    if (error) throw error;
+    attachmentUrlCache.set(path, { url: data.signedUrl, expiry: now + 3600000 });
+    return data.signedUrl;
+  }
+
+  async function unsendMessage(id) {
+    const { error } = await sb.rpc('unsend_message', { p_message_id: id });
+    if (error) return { ok: false, message: error.message };
+    await loadOwn();
+    return { ok: true };
+  }
+
+  async function pinMessage(id, pinned) {
+    const { error } = await sb.rpc('pin_message', { p_message_id: id, p_pinned: pinned });
+    if (error) return { ok: false, message: error.message };
+    await loadOwn();
+    return { ok: true };
+  }
+
+  async function reactToMessage(messageId, emoji) {
+    if (!ALLOWED_EMOJIS.includes(emoji)) return { ok: false, message: 'Invalid emoji.' };
+    if (!cache.me) return { ok: false, message: 'Not signed in.' };
+    const existing = cache.reactions.find(r => r.message_id === messageId && r.user_id === cache.me.id);
+    if (existing) {
+      if (existing.emoji === emoji) {
+        const { error } = await sb.from('message_reactions').delete().eq('id', existing.id);
+        if (error) return { ok: false, message: error.message };
+      } else {
+        const { error } = await sb.from('message_reactions').update({ emoji }).eq('id', existing.id);
+        if (error) return { ok: false, message: error.message };
+      }
+    } else {
+      const { error } = await sb.from('message_reactions').insert({ message_id: messageId, user_id: cache.me.id, emoji });
+      if (error) return { ok: false, message: error.message };
+    }
+    await loadReactions(cache.messages.map(m => m.id));
+    return { ok: true };
+  }
+
+  function reactionsFor(messageId) {
+    const mine = cache.reactions.filter(r => r.message_id === messageId);
+    const counts = {};
+    let own = null;
+    mine.forEach(r => {
+      counts[r.emoji] = (counts[r.emoji] || 0) + 1;
+      if (cache.me && r.user_id === cache.me.id) own = r.emoji;
+    });
+    return { counts, own };
   }
 
   async function updateAvatar(dataUrl) {
@@ -607,6 +757,7 @@ const PetalApp = (() => {
     placeOrder, cancelMyOrder,
     setOrderStatus, saveDelivery, adminSetCourierLocation,
     sendMessage, markRead, unreadCount, conversationList,
+    sendImage, sendVoice, getAttachmentUrl, unsendMessage, pinMessage, reactToMessage, reactionsFor,
     updateAvatar, removeAvatar,
     saveProduct, deleteProduct, setAvailability, setStock,
     softDeleteCustomer, restoreCustomer, addCourier, removeCourier,

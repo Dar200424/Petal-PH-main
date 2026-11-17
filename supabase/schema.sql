@@ -73,10 +73,60 @@ create table if not exists public.messages (
   user_id uuid references public.profiles (id) on delete cascade,
   sender text not null check (sender in ('user', 'admin')),
   body text not null,
+  kind text not null default 'text' check (kind in ('text','image','voice')),
+  attachment_path text,
+  attachment_mime text,
+  duration_seconds integer,
   read_by_user boolean not null default false,
   read_by_admin boolean not null default false,
-  created_at timestamptz default now()
+  deleted_at timestamptz,
+  pinned_at timestamptz,
+  pinned_by uuid references public.profiles(id),
+  created_at timestamptz default now(),
+  constraint messages_body_or_attachment_check check (length(btrim(body)) > 0 or attachment_path is not null),
+  constraint messages_kind_requires_attachment_check check (kind = 'text' or attachment_path is not null)
 );
+
+-- message reactions (one emoji per person per message)
+create table if not exists public.message_reactions (
+  id uuid primary key default gen_random_uuid(),
+  message_id uuid references public.messages(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
+  emoji text not null,
+  created_at timestamptz default now(),
+  constraint message_reactions_unique unique (message_id, user_id),
+  constraint message_reactions_emoji_check check (emoji in ('👍','❤️','😂','😮','😢','🙏'))
+);
+
+-- private storage bucket for chat media (images and voice clips)
+do $$
+begin
+  insert into storage.buckets (id, name, public)
+  values ('chat-media', 'chat-media', false)
+  on conflict (id) do nothing;
+end $$;
+
+drop policy if exists "chat media select own or admin" on storage.objects;
+create policy "chat media select own or admin" on storage.objects
+  for select using (
+    bucket_id = 'chat-media' and
+    (owner = auth.uid() or public.is_admin())
+  );
+
+drop policy if exists "chat media insert own or admin" on storage.objects;
+create policy "chat media insert own or admin" on storage.objects
+  for insert with check (
+    bucket_id = 'chat-media' and (
+      (owner = auth.uid() and name like auth.uid() || '/%') or public.is_admin()
+    )
+  );
+
+drop policy if exists "chat media delete own or admin" on storage.objects;
+create policy "chat media delete own or admin" on storage.objects
+  for delete using (
+    bucket_id = 'chat-media' and
+    (owner = auth.uid() or public.is_admin())
+  );
 
 -- 2. Helper functions ----------------------------------------
 
@@ -234,8 +284,20 @@ create policy "messages read own or admin" on public.messages
   for select using (user_id = auth.uid() or public.is_admin());
 create policy "messages insert user or admin" on public.messages
   for insert with check (
-    (sender = 'user' and user_id = auth.uid() and read_by_user = true and read_by_admin = false)
-    or (sender = 'admin' and public.is_admin() and read_by_admin = true and read_by_user = false)
+    (
+      sender = 'user'
+      and user_id = auth.uid()
+      and read_by_user = true
+      and read_by_admin = false
+      and (attachment_path is null or attachment_path like (user_id::text || '/%'))
+    )
+    or (
+      sender = 'admin'
+      and public.is_admin()
+      and read_by_admin = true
+      and read_by_user = false
+      and (attachment_path is null or attachment_path like (user_id::text || '/%'))
+    )
   );
 create policy "messages update own or admin" on public.messages
   for update using (user_id = auth.uid() or public.is_admin())
@@ -243,7 +305,9 @@ create policy "messages update own or admin" on public.messages
 create policy "messages delete admin" on public.messages
   for delete using (public.is_admin());
 
--- customers may only flip read_by_user on their own messages
+-- customers may only flip read_by_user on their own messages;
+-- protected columns (body/sender/user_id/kind/attachment_*) may only
+-- be changed through the unsend_message / pin_message security-definer RPCs.
 create or replace function public.messages_update_guard()
 returns trigger
 language plpgsql
@@ -251,15 +315,28 @@ security definer
 set search_path = public
 as $$
 begin
+  -- RPC-driven mutations set this flag for the whole transaction.
+  if current_setting('app.petal.message_rpc', true) = 'true' then
+    return new;
+  end if;
+
   if not public.is_admin() then
     if new.sender <> old.sender or new.body <> old.body or new.user_id <> old.user_id then
-      raise exception 'You can only update read_by_user on your own messages';
+      raise exception 'You can only update read_by_user on your own messages.';
+    end if;
+    if new.kind is distinct from old.kind then
+      raise exception 'You cannot change the message kind.';
+    end if;
+    if new.attachment_path is distinct from old.attachment_path
+       or new.attachment_mime is distinct from old.attachment_mime
+       or new.duration_seconds is distinct from old.duration_seconds then
+      raise exception 'You cannot change attachment columns.';
     end if;
     if new.read_by_admin <> old.read_by_admin then
-      raise exception 'You cannot change read_by_admin';
+      raise exception 'You cannot change read_by_admin.';
     end if;
     if new.read_by_user <> old.read_by_user and new.user_id <> auth.uid() then
-      raise exception 'You can only update read_by_user on your own messages';
+      raise exception 'You can only update read_by_user on your own messages.';
     end if;
   end if;
   return new;
@@ -270,6 +347,89 @@ drop trigger if exists messages_update_guard on public.messages;
 create trigger messages_update_guard
   before update on public.messages
   for each row execute function public.messages_update_guard();
+
+-- ─────────────────────────────────────────────────────────────
+-- 4.5. Message upgrade RPCs (security definer)
+-- ─────────────────────────────────────────────────────────────
+create or replace function public.unsend_message(p_message_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_msg public.messages;
+begin
+  perform set_config('app.petal.message_rpc', 'true', true);
+  select * into v_msg from public.messages where id = p_message_id;
+  if v_msg.id is null then
+    raise exception 'Message not found.';
+  end if;
+  if v_msg.sender = 'user' then
+    if v_msg.user_id <> auth.uid() then
+      raise exception 'You can only unsend your own messages.';
+    end if;
+  elsif v_msg.sender = 'admin' then
+    if not public.is_admin() then
+      raise exception 'Admin only.';
+    end if;
+  end if;
+  if v_msg.attachment_path is not null then
+    delete from storage.objects
+    where bucket_id = 'chat-media' and name = v_msg.attachment_path;
+  end if;
+  update public.messages
+  set deleted_at = now(), body = '', pinned_at = null, pinned_by = null
+  where id = p_message_id;
+end;
+$$;
+
+create or replace function public.pin_message(p_message_id uuid, p_pinned boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_msg public.messages;
+  v_pin_count integer;
+begin
+  perform set_config('app.petal.message_rpc', 'true', true);
+  select * into v_msg from public.messages where id = p_message_id;
+  if v_msg.id is null then
+    raise exception 'Message not found.';
+  end if;
+  if v_msg.deleted_at is not null then
+    raise exception 'Cannot pin an unsent message.';
+  end if;
+  if v_msg.sender = 'user' then
+    if v_msg.user_id <> auth.uid() then
+      raise exception 'You can only pin messages in your own conversation.';
+    end if;
+  elsif v_msg.sender = 'admin' then
+    if not public.is_admin() then
+      raise exception 'Admin only.';
+    end if;
+  end if;
+  if p_pinned then
+    select count(*) into v_pin_count
+    from public.messages
+    where user_id = v_msg.user_id and pinned_at is not null;
+    if v_pin_count >= 3 then
+      raise exception 'Maximum of 3 pinned messages per conversation.';
+    end if;
+  end if;
+  update public.messages
+  set pinned_at = case when p_pinned then now() else null end,
+      pinned_by = case when p_pinned then auth.uid() else null end
+  where id = p_message_id;
+end;
+$$;
+
+revoke all on function public.unsend_message(uuid) from public;
+revoke all on function public.pin_message(uuid, boolean) from public;
+grant execute on function public.unsend_message(uuid) to authenticated;
+grant execute on function public.pin_message(uuid, boolean) to authenticated;
 
 -- 5. Order functions (security definer) ----------------------
 
@@ -544,6 +704,7 @@ grant select on public.products to anon, authenticated;
 grant select, insert, update, delete on public.profiles to authenticated;
 grant select, insert, update, delete on public.orders to authenticated;
 grant select, insert, update, delete on public.messages to authenticated;
+grant select, insert, update, delete on public.message_reactions to authenticated;
 grant select, insert, update, delete on public.couriers to authenticated;
 
 -- 8. Best-sellers function (security definer, for all authenticated users)
