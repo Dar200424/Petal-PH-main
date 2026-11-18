@@ -154,8 +154,9 @@ const PetalChatUI = (() => {
     const status = statusHtml(m);
     const singleCls = m._single ? ' chat-pos-single' : (' chat-pos-' + m._pos);
     const imgCls = m.kind === 'image' ? ' chat-bubble-img' : '';
+    const side = own ? 'own' : 'other';
     return `
-      <div class="chat-msg-row ${own ? 'chat-mine' : 'chat-them'}">
+      <div class="chat-msg-row ${own ? 'chat-mine' : 'chat-them'}" data-side="${side}">
         <div class="chat-bubble-wrap${singleCls}" data-msgid="${e(m.id)}">
           ${pinnedBadge}
           <div class="chat-bubble ${own ? 'chat-bubble-own' : 'chat-bubble-recv'}${singleCls}${imgCls}" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}">
@@ -176,7 +177,7 @@ const PetalChatUI = (() => {
     g.msgs.forEach((m, i) => {
       const last = i === g.msgs.length - 1;
       const showAvatar = !isOwn(m) && last;
-      const avatar = showAvatar ? `<div class="chat-avatar chat-avatar-msg" data-userid="${e(m.user_id)}"><img src="${avatarSrc(cfg.other)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span>${e(initials(cfg.other))}</span></div>` : '';
+      const avatar = showAvatar ? `<div class="chat-avatar chat-avatar-msg" data-userid="${e(m.user_id)}"><img src="${avatarSrc(cfg.other)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span>${e(initials(cfg.other))}</span></div>` : (!isOwn(m) ? '<div class="chat-avatar-spacer"></div>' : '');
       out += `<div class="chat-msg-line${showAvatar ? ' chat-has-avatar' : ''}">${avatar}${bubbleWrapHtml(m, urls)}</div>`;
     });
     return out;

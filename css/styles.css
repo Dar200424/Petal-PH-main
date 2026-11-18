@@ -719,3 +719,57 @@ th { background: linear-gradient(180deg, #fff, var(--accent-soft)); }
 /* hide the old white card only inside the image lightboxes */
 .modal#imageModal .modal-card,
 .modal#adminImageModal .modal-card { display: none !important; }
+
+/* ============================================================
+ * Message alignment fix
+ * Own messages on the RIGHT, received on the LEFT with avatar.
+ * Appended AFTER all existing rules; existing rules are NOT
+ * modified or reordered.
+ * ============================================================ */
+
+/* message list: column, items stretch */
+.chat-messages { display: flex !important; flex-direction: column !important; align-items: stretch !important; }
+
+/* each row: full width, items at the bottom, 8px gap */
+.chat-msg-row[data-side] {
+  display: flex !important;
+  width: 100% !important;
+  align-items: flex-end !important;
+  gap: 8px !important;
+  margin: .25rem 0 !important;
+}
+.chat-msg-row[data-side="own"] { justify-content: flex-end !important; }
+.chat-msg-row[data-side="other"] { justify-content: flex-start !important; }
+
+/* received rows: keep the 28px avatar (or spacer) on the left */
+.chat-msg-row[data-side="other"] .chat-avatar,
+.chat-msg-row[data-side="other"] .chat-avatar-spacer { flex: 0 0 auto; }
+
+/* bubble */
+.chat-bubble {
+  width: fit-content !important;
+  min-width: 0 !important;
+  max-width: min(70%, 480px) !important;
+  padding: 8px 12px !important;
+  border-radius: 18px !important;
+  line-height: 1.35 !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: break-word !important;
+  word-break: normal !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+.chat-bubble-own {
+  background: linear-gradient(135deg, #ff8fa3, #ff5f8a) !important;
+  color: #fff !important;
+}
+.chat-bubble-own .chat-body { color: #fff !important; }
+.chat-bubble-recv {
+  background: #eef0f2 !important;
+  color: #1d1d1f !important;
+}
+.chat-bubble-recv .chat-body { color: #1d1d1f !important; }
+.chat-body { white-space: pre-wrap !important; overflow-wrap: break-word !important; word-break: normal !important; }
+
+/* Sent/Seen only under the LAST own message, right-aligned, small */
+.chat-status { font-size: .65rem; color: var(--muted); text-align: right; margin-top: .2rem; padding-right: .25rem; }
