@@ -425,13 +425,14 @@ begin
   if v_msg.deleted_at is not null then
     raise exception 'Cannot pin an unsent message.';
   end if;
-  if v_msg.sender = 'user' then
+
+  -- BUG A fix: in a 1:1 customer/admin conversation BOTH sides may
+  -- pin ANY message of that conversation.
+  --   customer (not admin): only in their own conversation
+  --   admin (public.is_admin()): any conversation
+  if not public.is_admin() then
     if v_msg.user_id <> auth.uid() then
       raise exception 'You can only pin messages in your own conversation.';
-    end if;
-  elsif v_msg.sender = 'admin' then
-    if not public.is_admin() then
-      raise exception 'Admin only.';
     end if;
   end if;
   if p_pinned then
