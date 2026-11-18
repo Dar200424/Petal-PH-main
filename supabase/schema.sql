@@ -94,9 +94,36 @@ create table if not exists public.message_reactions (
   user_id uuid references public.profiles(id) on delete cascade,
   emoji text not null,
   created_at timestamptz default now(),
-  constraint message_reactions_unique unique (message_id, user_id),
-  constraint message_reactions_emoji_check check (emoji in ('👍','❤️','😂','😮','😢','🙏'))
+constraint message_reactions_unique unique (message_id, user_id),
+  constraint message_reactions_emoji_check check (emoji in ('👍','❤️','😂','😢','🙏'))
 );
+
+-- message_reactions RLS (mirrors supabase/migrations/2026-11-19_reactions-fix.sql)
+alter table public.message_reactions enable row level security;
+
+drop policy if exists "message reactions read own or admin" on public.message_reactions;
+create policy "message reactions read own or admin" on public.message_reactions
+  for select using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "message reactions insert own" on public.message_reactions;
+create policy "message reactions insert own" on public.message_reactions
+  for insert with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.messages m
+      where m.id = message_reactions.message_id
+        and m.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "message reactions update own" on public.message_reactions;
+create policy "message reactions update own" on public.message_reactions
+  for update using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists "message reactions delete own" on public.message_reactions;
+create policy "message reactions delete own" on public.message_reactions
+  for delete using (user_id = auth.uid());
 
 -- private storage bucket for chat media (images and voice clips)
 do $$
