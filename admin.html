@@ -228,12 +228,10 @@
 
   <!-- Image lightbox (admin messages) -->
   <div id="adminImageModal" class="modal hidden">
-    <div class="modal-card" style="max-height:85vh; display:flex; flex-direction:column; align-items:center; justify-content:center;">
-      <img id="adminImageModalImg" style="max-width:90vw; max-height:60vh; border-radius:12px; border:1px solid var(--border);">
-      <div class="row" style="justify-content:flex-end; margin-top:.7rem; width:100%; padding:0 1rem;">
-        <button class="btn btn-outline" id="adminImageClose">Close</button>
-      </div>
-    </div>
+    <button class="modal-x" id="adminImageModalClose" aria-label="Close" type="button">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <img id="adminImageModalImg" style="max-width:92vw; max-height:88vh; object-fit:contain; border-radius:8px;">
   </div>
 
   <!-- Message action cluster (admin messages) -->
@@ -1391,7 +1389,7 @@
         chatMsg: document.getElementById('adminChatMsg'),
         imageModal: document.getElementById('adminImageModal'),
         imageModalImg: document.getElementById('adminImageModalImg'),
-        imageClose: document.getElementById('adminImageClose'),
+        imageClose: document.getElementById('adminImageModalClose'),
         msgMenu: document.getElementById('adminMsgMenu'),
         msgPicker: document.getElementById('adminMsgPicker'),
         msgPickerItems: document.getElementById('adminMsgPickerItems'),

@@ -75,12 +75,10 @@
 
   <!-- Image lightbox -->
   <div id="imageModal" class="modal hidden">
-    <div class="modal-card" style="max-height:85vh; display:flex; flex-direction:column; align-items:center; justify-content:center;">
-      <img id="imageModalImg" style="max-width:90vw; max-height:60vh; border-radius:12px; border:1px solid var(--border);">
-      <div class="row" style="justify-content:flex-end; margin-top:.7rem; width:100%; padding:0 1rem;">
-        <button class="btn btn-outline" id="imageClose">Close</button>
-      </div>
-    </div>
+    <button class="modal-x" id="imageClose" aria-label="Close" type="button">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <img id="imageModalImg" style="max-width:92vw; max-height:88vh; object-fit:contain; border-radius:8px;">
   </div>
 
   <!-- Message action cluster -->

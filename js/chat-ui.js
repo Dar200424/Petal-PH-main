@@ -665,13 +665,19 @@ const PetalChatUI = (() => {
       const modalImg = $('imageModalImg');
       if (modal && modalImg) {
         modalImg.src = img.dataset.src || img.src;
-        modal.classList.remove('hidden');
+        openImageModal(modal);
       }
     });
     const imageClose = $('imageClose');
     const imageModal = $('imageModal');
-    if (imageClose) imageClose.addEventListener('click', () => { imageModal.classList.add('hidden'); imageModalImg.src = ''; });
-    if (imageModal) imageModal.addEventListener('click', (ev) => { if (ev.target === imageModal) { imageModal.classList.add('hidden'); imageModalImg.src = ''; } });
+    if (imageClose) imageClose.addEventListener('click', () => { if (imageModal) closeImageModal(imageModal); });
+    if (imageModal) imageModal.addEventListener('click', (ev) => { if (ev.target === imageModal) closeImageModal(imageModal); });
+    document.querySelectorAll('.modal-x').forEach((x) => {
+      x.addEventListener('click', () => {
+        const modal = x.closest('.modal');
+        if (modal) closeImageModal(modal);
+      });
+    });
 
     // long press on bubble (mobile) -> action cluster
     document.addEventListener('touchstart', (ev) => {
@@ -733,6 +739,31 @@ const PetalChatUI = (() => {
     const container = $('container');
     if (!container) return;
     // voice player custom controls handled in bindVoicePlayer via delegation on container
+  }
+
+  let scrollYSaved = 0;
+
+  function openImageModal(modal) {
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.classList.add('open');
+    scrollYSaved = window.scrollY || document.documentElement.scrollTop;
+    document.body.style.position = 'fixed';
+    document.body.style.top = '-' + scrollYSaved + 'px';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeImageModal(modal) {
+    if (!modal) return;
+    modal.classList.remove('open');
+    modal.classList.add('hidden');
+    const img = modal.querySelector('img');
+    if (img) img.src = '';
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.overflow = '';
+    window.scrollTo(0, scrollYSaved);
+    scrollYSaved = 0;
   }
 
   function bindPinnedBar() {

@@ -652,3 +652,70 @@ th { background: linear-gradient(180deg, #fff, var(--accent-soft)); }
 /* Avatar alignment: received avatar on the left */
 .chat-msg-line { display: flex; gap: .5rem; align-items: flex-end; width: 100%; }
 .chat-msg-line.chat-has-avatar { align-items: flex-start; }
+
+/* ============================================================
+ * Image viewer
+ * Messenger-style lightbox: dark backdrop, no white card, no
+ * Close text button, round X in the top-right. Existing rules
+ * above are NOT modified or reordered.
+ * ============================================================ */
+
+/* backdrop fills the screen, dark semi-transparent */
+.modal#imageModal,
+.modal#adminImageModal {
+  background: rgba(0, 0, 0, .85) !important;
+  padding: 0 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 100 !important;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.modal#imageModal.open,
+.modal#adminImageModal.open { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .modal#imageModal, .modal#adminImageModal {
+    transition: none !important;
+  }
+}
+
+/* photo: centered, contain, rounded */
+.modal#imageModal img,
+.modal#adminImageModal img {
+  max-width: 92vw !important;
+  max-height: 88vh !important;
+  object-fit: contain !important;
+  border-radius: 8px !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+}
+
+/* round X button, top-right, fixed */
+.modal-x {
+  position: fixed !important;
+  top: 16px !important;
+  right: 16px !important;
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+  border: 0 !important;
+  background: rgba(0, 0, 0, .55) !important;
+  color: #fff !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 101 !important;
+  line-height: 1 !important;
+  padding: 0 !important;
+}
+.modal-x:hover { background: rgba(0, 0, 0, .72) !important; }
+.modal-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (max-width: 480px) {
+  .modal-x { top: 10px !important; right: 10px !important; width: 36px !important; height: 36px !important; }
+}
+
+/* hide the old white card only inside the image lightboxes */
+.modal#imageModal .modal-card,
+.modal#adminImageModal .modal-card { display: none !important; }
