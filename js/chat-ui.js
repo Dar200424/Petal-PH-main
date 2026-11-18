@@ -6,11 +6,11 @@
 const PetalChatUI = (() => {
   const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
   const MAX_VOICE_SECONDS = 120;
-  const GROUP_GAP_MS = 2 * 60 * 1000;   // same sender within 2 min = one group
-  const DIVIDER_GAP_MS = 15 * 60 * 1000; // new time divider when gap > 15 min or day changes
+  const GROUP_GAP_MS = 2 * 60 * 1000;
+  const DIVIDER_GAP_MS = 15 * 60 * 1000;
   const DOUBLE_TAP_MS = 300;
 
-  let cfg = null; // { me, meSender, other, conversationUserId, markRead, getMessages, sendText, sendImage, sendVoice, unsend, pin, react, getAttachmentUrl, elements: {...} }
+  let cfg = null;
   let st = {
     msgs: [],
     urls: {},
@@ -30,12 +30,13 @@ const PetalChatUI = (() => {
     isAtBottom: true,
     currentAudioId: null,
     audioEl: new Audio(),
+    reactionPickerEl: null,
+    reactionPopoverEl: null,
   };
 
   const $ = (id) => (cfg && cfg.elements && cfg.elements[id]) ? cfg.elements[id] : document.getElementById(id);
   const e = (s) => PetalApp.escapeHtml(s);
 
-  /* ---------- small helpers ---------- */
   function isOwn(m) { return m.sender === cfg.meSender; }
   function readCol() { return cfg.meSender === 'user' ? 'read_by_admin' : 'read_by_user'; }
   function nameOf(p) { return (p && p.nickname) || (p && p.email) || 'Customer'; }
@@ -64,7 +65,6 @@ const PetalChatUI = (() => {
     return d.toLocaleDateString('en-PH', { weekday: 'short' });
   }
 
-  /* ---------- grouping ---------- */
   function buildGroups(msgs) {
     const groups = [];
     msgs.forEach((m) => {
@@ -93,7 +93,6 @@ const PetalChatUI = (() => {
     return groups;
   }
 
-  /* ---------- reactions ---------- */
   function reactionsOf(messageId) {
     return PetalApp.reactionsFor(messageId);
   }
@@ -107,27 +106,26 @@ const PetalChatUI = (() => {
     return `<div class="chat-reaction-pill" data-msgid="${e(m.id)}">${items}</div>`;
   }
 
-  /* ---------- message html ---------- */
-  function statusHtml(m) {
-    if (!isOwn(m)) return '';
+  function statusHtml(m, isLastOwnMsg) {
+    if (!isOwn(m) || !isLastOwnMsg) return '';
     const rc = readCol();
     const seen = m[rc] === true || m[rc] === 1;
     const status = seen ? 'Seen' : 'Sent';
-    return `<div class="chat-status">${e(status)}</div>`;
+    return `<div class="chat-status"><svg class="chat-status-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>${e(status)}</div>`;
   }
 
   function attachHtml(m, urls) {
-    const e = PetalApp.escapeHtml;
+    const esc = PetalApp.escapeHtml;
     if (m.deleted_at) return '';
     if (m.kind === 'image') {
       const url = urls[m.id] || '';
-      return `<img class="chat-img" src="${e(url)}" alt="Photo" data-msgid="${e(m.id)}" data-src="${e(url)}">`;
+      return `<img class="chat-img" src="${esc(url)}" alt="Photo" data-msgid="${esc(m.id)}" data-src="${esc(url)}">`;
     }
     if (m.kind === 'voice') {
       const url = urls[m.id] || '';
       const dur = m.duration_seconds ? Math.floor(m.duration_seconds) : 0;
       return `
-        <div class="chat-voice-player" data-msgid="${e(m.id)}" data-src="${e(url)}" data-dur="${dur}">
+        <div class="chat-voice-player" data-msgid="${esc(m.id)}" data-src="${esc(url)}" data-dur="${dur}">
           <button class="chat-voice-play" aria-label="Play voice message">▶</button>
           <div class="chat-voice-progress"><div class="chat-voice-progress-fill" style="width:0%"></div></div>
           <span class="chat-voice-dur">${dur ? dur + 's' : '0s'}</span>
@@ -145,38 +143,40 @@ const PetalChatUI = (() => {
     return attachHtml(m, urls);
   }
 
-  function bubbleWrapHtml(m, urls) {
+  function bubbleWrapHtml(m, urls, isLastOwnMsg) {
     const own = isOwn(m);
     const pinned = !!m.pinned_at && !m.deleted_at;
     const time = fmtClock(m.created_at);
     const pinnedBadge = pinned ? '<span class="chat-pinned-badge">Pinned</span>' : '';
     const reactions = reactionPillHtml(m);
-    const status = statusHtml(m);
-    const singleCls = m._single ? ' chat-pos-single' : (' chat-pos-' + m._pos);
+    const status = statusHtml(m, isLastOwnMsg);
+    const posClass = m._single ? ' single' : (m._pos === 'first' ? ' first' : (m._pos === 'last' ? ' last' : ' mid'));
+    const bubbleClass = own ? 'mine' : 'their';
     return `
-      <div class="chat-msg-row ${own ? 'chat-mine' : 'chat-them'}">
-        <div class="chat-bubble-wrap${singleCls}" data-msgid="${e(m.id)}">
-          ${pinnedBadge}
-          <div class="chat-bubble ${own ? 'chat-bubble-own' : 'chat-bubble-recv'}${singleCls}" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}">
-            ${bodyHtml(m, urls)}
-          </div>
-          ${reactions}
-          ${status}
+      <div class="chat-bubble-wrap${posClass}" data-msgid="${e(m.id)}">
+        ${pinnedBadge}
+        <div class="chat-bubble ${bubbleClass}${posClass}" data-msgid="${e(m.id)}" title="${e(time)}">
+          ${bodyHtml(m, urls)}
         </div>
+        ${reactions}
+        ${status}
       </div>`;
   }
 
-  function groupHtml(g, urls) {
+  function groupHtml(g, urls, lastOwnMsgId) {
     let out = '';
     if (g.divider) {
       out += `<div class="chat-divider"><span>${e(fmtDivider(g.msgs[0].created_at))}</span></div>`;
     }
-    // avatar on last message of received groups
     g.msgs.forEach((m, i) => {
       const last = i === g.msgs.length - 1;
       const showAvatar = !isOwn(m) && last;
-      const avatar = showAvatar ? `<div class="chat-avatar chat-avatar-msg" data-userid="${e(m.user_id)}"><img src="${avatarSrc(cfg.other)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span>${e(initials(cfg.other))}</span></div>` : '';
-      out += `<div class="chat-msg-line${showAvatar ? ' chat-has-avatar' : ''}">${avatar}${bubbleWrapHtml(m, urls)}</div>`;
+      const avatar = showAvatar ? `<div class="chat-avatar chat-avatar-msg" data-userid="${e(m.user_id)}"><img src="${avatarSrc(cfg.other)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span class="chat-avatar-fallback">${e(initials(cfg.other))}</span></div>` : '';
+      const spacer = !isOwn(m) && !last ? '<div class="chat-avatar" style="visibility:hidden"></div>' : '';
+      const rowClass = own ? 'mine' : 'them';
+      const groupPos = i === 0 ? 'group-first' : (last ? 'group-last' : 'group-mid');
+      const isLastOwnMsg = isOwn(m) && m.id === lastOwnMsgId;
+      out += `<div class="chat-msg-line${showAvatar ? ' has-avatar' : ''}">${avatar}${spacer}<div class="chat-msg-row ${rowClass} ${groupPos}">${bubbleWrapHtml(m, urls, isLastOwnMsg)}</div></div>`;
     });
     return out;
   }
@@ -191,7 +191,6 @@ const PetalChatUI = (() => {
       msgs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       st.msgs = msgs;
 
-      // load attachment urls for media messages
       const todo = msgs.filter(m => (m.kind === 'image' || m.kind === 'voice') && m.attachment_path && !m.deleted_at && !st.urls[m.id]);
       await Promise.all(todo.map(async (m) => {
         try { st.urls[m.id] = await cfg.getAttachmentUrl(m.attachment_path); } catch (err) { st.urls[m.id] = null; }
@@ -204,10 +203,11 @@ const PetalChatUI = (() => {
       if (!msgs.length) {
         container.innerHTML = '<div class="chat-empty">No messages yet. Start the conversation.</div>';
         if (pinnedBar) pinnedBar.classList.add('hidden');
+        updateHeaderEmpty(true);
         return;
       }
+      updateHeaderEmpty(false);
 
-      // pinned bar (slim strip, up to 3)
       const pinned = msgs.filter(m => m.pinned_at && !m.deleted_at).slice(0, 3);
       if (pinnedBar) {
         pinnedBar.innerHTML = pinned.map(m => {
@@ -217,8 +217,12 @@ const PetalChatUI = (() => {
         pinnedBar.classList.toggle('hidden', pinned.length === 0);
       }
 
-      container.innerHTML = groups.map(g => groupHtml(g, st.urls)).join('');
+      const lastOwnMsg = [...msgs].reverse().find(m => isOwn(m) && !m.deleted_at);
+      const lastOwnMsgId = lastOwnMsg ? lastOwnMsg.id : null;
+
+      container.innerHTML = groups.map(g => groupHtml(g, st.urls, lastOwnMsgId)).join('');
       manageScroll();
+      attachActionClusterListeners();
     } catch (err) {
       const container = $('container');
       if (container) container.innerHTML = '<div class="chat-empty error">Chat could not be loaded. Please refresh and try again.</div>';
@@ -226,15 +230,33 @@ const PetalChatUI = (() => {
     }
   }
 
-  /* ---------- scroll / new-messages button ---------- */
+  function updateHeaderEmpty(empty) {
+    const header = document.querySelector('.chat-header, .chat-header-customer');
+    if (!header) return;
+    const avatar = header.querySelector('.chat-header-avatar, .chat-header-avatar-fallback, .brand-logo');
+    const name = header.querySelector('.chat-header-name, .chat-header-customer-name');
+    const sub = header.querySelector('.chat-header-sub, .chat-header-customer-sub');
+    if (empty) {
+      header.classList.add('empty');
+      if (avatar) avatar.style.display = 'none';
+      if (name) { name.textContent = 'Select a conversation'; name.style.justifyContent = 'center'; name.style.width = '100%'; }
+      if (sub) sub.style.display = 'none';
+    } else {
+      header.classList.remove('empty');
+      if (avatar) avatar.style.display = '';
+      if (name) { name.style.justifyContent = ''; name.style.width = ''; }
+      if (sub) sub.style.display = '';
+    }
+  }
+
   function manageScroll() {
     const container = $('container');
     if (!container) return;
     const nearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 60;
     st.isAtBottom = nearBottom;
     const btn = $('newMsgBtn');
-    if (!nearBottom && btn) btn.classList.remove('hidden');
-    if (nearBottom && btn) btn.classList.add('hidden');
+    if (!nearBottom && btn) btn.classList.add('visible');
+    if (nearBottom && btn) btn.classList.remove('visible');
     if (nearBottom) scrollToBottom(false);
   }
 
@@ -252,14 +274,13 @@ const PetalChatUI = (() => {
     container.addEventListener('scroll', () => {
       const nearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 60;
       st.isAtBottom = nearBottom;
-      if (btn) btn.classList.toggle('hidden', nearBottom);
+      if (btn) btn.classList.toggle('visible', !nearBottom);
     });
     if (btn) {
-      btn.addEventListener('click', () => { scrollToBottom(false); btn.classList.add('hidden'); });
+      btn.addEventListener('click', () => { scrollToBottom(false); btn.classList.remove('visible'); });
     }
   }
 
-  /* ---------- public render entry ---------- */
   function init(options) {
     cfg = options;
     bindContainer();
@@ -278,11 +299,12 @@ const PetalChatUI = (() => {
     cfg.conversationUserId = conversationUserId;
     const headerName = $('headerName');
     if (headerName) headerName.textContent = nameOf(cfg.other) || 'Conversation';
+    const headerSub = document.querySelector('.chat-header-sub');
+    if (headerSub) headerSub.textContent = 'Petal-PH customer';
     renderOnce();
     scrollToBottom(true);
   }
 
-  /* ---------- action cluster (hover desktop / long-press mobile) ---------- */
   let clusterHideTimer = null;
 
   function closeMenus() {
@@ -295,6 +317,8 @@ const PetalChatUI = (() => {
     if (menu) menu.classList.add('hidden');
     if (picker) picker.classList.add('hidden');
     if (popover) popover.classList.add('hidden');
+    if (st.reactionPickerEl) { st.reactionPickerEl.remove(); st.reactionPickerEl = null; }
+    if (st.reactionPopoverEl) { st.reactionPopoverEl.remove(); st.reactionPopoverEl = null; }
     clearLongPress();
     if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; }
   }
@@ -304,8 +328,42 @@ const PetalChatUI = (() => {
     st.longPressEl = null;
   }
 
-  function showCluster(msgId) {
+  function showActionCluster(msgId) {
     if (st.openMenuId === msgId) return;
+    closeMenus();
+    st.openMenuId = msgId;
+    const bubble = document.querySelector('[data-msgid="' + e(msgId) + '"] .chat-bubble');
+    if (!bubble) return;
+    let cluster = bubble.querySelector('.chat-action-cluster');
+    if (!cluster) {
+      cluster = document.createElement('div');
+      cluster.className = 'chat-action-cluster';
+      cluster.innerHTML = `
+        <button class="chat-action-btn" data-action="react" aria-label="React" title="React">😊</button>
+        <button class="chat-action-btn" data-action="more" aria-label="More" title="More">⋯</button>
+      `;
+      bubble.appendChild(cluster);
+      cluster.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.chat-action-btn');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        if (action === 'react') openReactionPicker(msgId, btn);
+        else if (action === 'more') openMessageMenu(msgId, btn);
+      });
+    }
+  }
+
+  function hideClusterDelayed() {
+    if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; }
+    clusterHideTimer = setTimeout(() => {
+      const menu = $('msgMenu');
+      if (menu && menu.matches(':hover')) return;
+      closeMenus();
+      clusterHideTimer = null;
+    }, 120);
+  }
+
+  function openMessageMenu(msgId, anchorBtn) {
     closeMenus();
     st.openMenuId = msgId;
     const menu = $('msgMenu');
@@ -316,48 +374,42 @@ const PetalChatUI = (() => {
     if (pinBtn && m) pinBtn.textContent = m.pinned_at ? 'Unpin' : 'Pin';
     const unsendBtn = $('menuUnsend');
     if (unsendBtn && m) unsendBtn.style.display = isOwn(m) ? 'block' : 'none';
-    const bubble = document.querySelector('[data-msgid="' + e(msgId) + '"] .chat-bubble');
-    if (bubble) {
-      const rect = bubble.getBoundingClientRect();
-      menu.style.left = (rect.right + 8) + 'px';
-      menu.style.top = (rect.top - 6) + 'px';
-      menu.classList.remove('hidden');
+    const rect = anchorBtn.getBoundingClientRect();
+    menu.style.left = (rect.left - menu.offsetWidth - 8) + 'px';
+    menu.style.top = (rect.top) + 'px';
+    menu.classList.remove('hidden');
+  }
+
+  function openReactionPicker(msgId, anchorBtn) {
+    closeMenus();
+    st.openPickerId = msgId;
+    if (st.reactionPickerEl) { st.reactionPickerEl.remove(); st.reactionPickerEl = null; }
+    const picker = document.createElement('div');
+    picker.className = 'chat-reaction-picker';
+    picker.innerHTML = EMOJIS.map(emoji => `<button class="chat-emoji-pick" data-emoji="${e(emoji)}">${e(emoji)}</button>`).join('');
+    document.body.appendChild(picker);
+    st.reactionPickerEl = picker;
+    const rect = anchorBtn.getBoundingClientRect();
+    picker.style.left = Math.max(8, rect.left - picker.offsetWidth / 2 + rect.width / 2) + 'px';
+    picker.style.top = (rect.top - 48) + 'px';
+    document.addEventListener('click', closePickerOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+  }
+
+  function closePickerOnOutsideClick(ev) {
+    if (st.reactionPickerEl && !st.reactionPickerEl.contains(ev.target) && !ev.target.closest('.chat-action-btn[data-action="react"]')) {
+      closeMenus();
+      document.removeEventListener('click', closePickerOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
     }
   }
 
-  function hideClusterDelayed() {
-    if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; }
-    clusterHideTimer = setTimeout(() => {
-      const menu = $('msgMenu');
-      if (menu && !menu.matches(':hover')) { menu.classList.add('hidden'); st.openMenuId = null; }
-      clusterHideTimer = null;
-    }, 120);
-  }
-
-  function openPicker(msgId, anchorEl) {
-    closeMenus();
-    st.openPickerId = msgId;
-    const picker = $('msgPicker');
-    const items = $('msgPickerItems');
-    if (!picker || !items) return;
-    items.innerHTML = EMOJIS.map(emoji => `<button class="chat-emoji-pick" data-emoji="${e(emoji)}">${e(emoji)}</button>`).join('');
-    const rect = anchorEl.getBoundingClientRect();
-    picker.style.left = Math.max(8, rect.left) + 'px';
-    picker.style.top = (rect.top - 42) + 'px';
-    picker.classList.remove('hidden');
-  }
-
-  function openPicker(msgId, anchorEl) {
-    closeMenus();
-    st.openPickerId = msgId;
-    const picker = $('msgPicker');
-    const items = $('msgPickerItems');
-    if (!picker || !items) return;
-    items.innerHTML = EMOJIS.map(emoji => `<button class="chat-emoji-pick" data-emoji="${e(emoji)}">${e(emoji)}</button>`).join('');
-    const rect = anchorEl.getBoundingClientRect();
-    picker.style.left = Math.max(8, rect.left) + 'px';
-    picker.style.top = (rect.top - 42) + 'px';
-    picker.classList.remove('hidden');
+  function closeOnEscape(ev) {
+    if (ev.key === 'Escape') {
+      closeMenus();
+      document.removeEventListener('click', closePickerOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    }
   }
 
   async function doReact(msgId, emoji) {
@@ -388,26 +440,48 @@ const PetalChatUI = (() => {
     closeMenus();
     st.openPopoverId = msgId;
     const r = reactionsOf(msgId);
-    const entries = Object.entries(r.counts || {}).flatMap(([emoji, count]) => {
-      return Array(count).fill(emoji);
-    });
-    // build who-reacted: we don't have names per reaction in cache; show emoji + count
-    const popover = $('reactionPopover');
-    const items = $('reactionPopoverItems');
-    if (!popover || !items) return;
+    if (st.reactionPopoverEl) { st.reactionPopoverEl.remove(); st.reactionPopoverEl = null; }
+    const popover = document.createElement('div');
+    popover.className = 'chat-reaction-popover';
     let html = '';
     Object.entries(r.counts || {}).forEach(([emoji, count]) => {
-      const active = r.own === emoji ? ' chat-selected' : '';
-      html += `<div class="chat-popover-entry${active}" data-emoji="${e(emoji)}">${e(emoji)} <span class="chat-popover-count">${count}</span>${r.own === emoji ? ' (you)' : ''}</div>`;
+      const active = r.own === emoji ? ' own' : '';
+      html += `<div class="chat-reaction-popover-entry${active}" data-emoji="${e(emoji)}">${e(emoji)} <span class="chat-reaction-popover-count">${count}</span>${r.own === emoji ? '<span class="chat-reaction-popover-you">(you)</span>' : ''}</div>`;
     });
-    items.innerHTML = html || '<div class="chat-popover-empty">No reactions yet.</div>';
+    popover.innerHTML = html || '<div class="chat-popover-empty">No reactions yet.</div>';
+    document.body.appendChild(popover);
+    st.reactionPopoverEl = popover;
     const rect = anchorEl.getBoundingClientRect();
     popover.style.left = Math.max(8, rect.left) + 'px';
     popover.style.top = (rect.top - popover.offsetHeight - 8) + 'px';
-    popover.classList.remove('hidden');
+    document.addEventListener('click', closePopoverOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
   }
 
-  /* ---------- voice ---------- */
+  function closePopoverOnOutsideClick(ev) {
+    if (st.reactionPopoverEl && !st.reactionPopoverEl.contains(ev.target) && !ev.target.closest('.chat-reaction-pill')) {
+      closeMenus();
+      document.removeEventListener('click', closePopoverOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    }
+  }
+
+  function attachActionClusterListeners() {
+    document.querySelectorAll('.chat-msg-line').forEach(line => {
+      line.addEventListener('mouseenter', () => {
+        const bubble = line.querySelector('.chat-bubble');
+        if (bubble) {
+          const msgId = bubble.dataset.msgid;
+          if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; }
+          showActionCluster(msgId);
+        }
+      });
+      line.addEventListener('mouseleave', () => {
+        hideClusterDelayed();
+      });
+    });
+  }
+
   function setRecordingUI(recording) {
     const micBtn = $('micBtn');
     const recorder = $('voiceRecorder');
@@ -508,7 +582,6 @@ const PetalChatUI = (() => {
     });
   }
 
-  /* ---------- voice player (custom controls) ---------- */
   function bindVoicePlayer() {
     const container = $('container');
     if (!container) return;
@@ -529,10 +602,16 @@ const PetalChatUI = (() => {
       btn.textContent = '⏸';
       try { await st.audioEl.play(); } catch (err) { /* blocked by browser */ }
       st.audioEl.onended = () => { btn.textContent = '▶'; };
+      const progressFill = wrap.querySelector('.chat-voice-progress-fill');
+      const updateProgress = () => {
+        if (st.currentAudioId !== msgId || st.audioEl.paused) return;
+        progressFill.style.width = (st.audioEl.currentTime / (dur || 1)) * 100 + '%';
+        requestAnimationFrame(updateProgress);
+      };
+      updateProgress();
     });
   }
 
-  /* ---------- composer ---------- */
   function bindComposer() {
     const form = $('form');
     const textarea = $('textarea');
@@ -540,11 +619,10 @@ const PetalChatUI = (() => {
     const photoBtn = $('photoBtn');
     const photoInput = $('photoInput');
 
-    // auto-grow textarea
     if (textarea) {
       textarea.addEventListener('input', () => {
         textarea.style.height = 'auto';
-        textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px'; // ~5 lines
+        textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
         updateSendBtn();
       });
       textarea.addEventListener('keydown', (ev) => {
@@ -589,56 +667,52 @@ const PetalChatUI = (() => {
     }
   }
 
-  /* ---------- overlays & delegation ---------- */
   function bindOverlays() {
-    // outside click closes menus/picker/popover
     document.addEventListener('click', (ev) => {
       const menu = $('msgMenu');
       const picker = $('msgPicker');
       const popover = $('reactionPopover');
-      const trig = ev.target.closest('.chat-bubble, [data-msgid], .chat-emoji-pick, .chat-popover-entry, .chat-reaction-pill-item');
-      if (!menu.contains(ev.target) && !picker.contains(ev.target) && !popover.contains(ev.target) && !trig) closeMenus();
+      const trig = ev.target.closest('.chat-bubble, [data-msgid], .chat-emoji-pick, .chat-popover-entry, .chat-reaction-pill-item, .chat-action-btn');
+      if (!menu?.contains(ev.target) && !picker?.contains(ev.target) && !popover?.contains(ev.target) && !trig && !st.reactionPickerEl?.contains(ev.target) && !st.reactionPopoverEl?.contains(ev.target)) {
+        closeMenus();
+      }
     });
     document.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') closeMenus();
     });
 
-    // message menu buttons
     const menuReact = $('menuReact');
     if (menuReact) menuReact.addEventListener('click', () => {
       const id = $('msgMenu').dataset.msgid;
-      const el = document.querySelector('[data-msgid="' + e(id) + '"] .chat-bubble');
-      openPicker(id, el);
+      const el = document.querySelector('[data-msgid="' + e(id) + '"] .chat-action-btn[data-action="react"]');
+      if (el) openReactionPicker(id, el);
     });
     const menuPin = $('menuPin');
     if (menuPin) menuPin.addEventListener('click', () => { doPin($('msgMenu').dataset.msgid); });
     const menuUnsend = $('menuUnsend');
     if (menuUnsend) menuUnsend.addEventListener('click', () => { doUnsend($('msgMenu').dataset.msgid); });
 
-    // emoji pick
     document.addEventListener('click', (ev) => {
       const pick = ev.target.closest('.chat-emoji-pick');
       if (!pick) return;
       doReact(st.openPickerId, pick.dataset.emoji);
     });
 
-    // reaction pill click -> popover
     document.addEventListener('click', (ev) => {
       const pill = ev.target.closest('.chat-reaction-pill');
       if (!pill) return;
       ev.stopPropagation();
       openReactionPopover(pill.dataset.msgid, pill);
     });
-    // popover entry click (remove own reaction)
+
     document.addEventListener('click', (ev) => {
-      const entry = ev.target.closest('.chat-popover-entry');
+      const entry = ev.target.closest('.chat-reaction-popover-entry');
       if (!entry) return;
       ev.stopPropagation();
       const emoji = entry.dataset.emoji;
       doReact(st.openPopoverId, emoji);
     });
 
-    // pinned bar click -> scroll
     const pinnedBar = $('pinnedBar');
     if (pinnedBar) {
       pinnedBar.addEventListener('click', (ev) => {
@@ -649,7 +723,6 @@ const PetalChatUI = (() => {
       });
     }
 
-    // image click -> lightbox
     document.addEventListener('click', (ev) => {
       const img = ev.target.closest('.chat-img');
       if (!img) return;
@@ -662,22 +735,23 @@ const PetalChatUI = (() => {
     });
     const imageClose = $('imageClose');
     const imageModal = $('imageModal');
-    if (imageClose) imageClose.addEventListener('click', () => { imageModal.classList.add('hidden'); imageModalImg.src = ''; });
-    if (imageModal) imageModal.addEventListener('click', (ev) => { if (ev.target === imageModal) { imageModal.classList.add('hidden'); imageModalImg.src = ''; } });
+    if (imageClose) imageClose.addEventListener('click', () => { imageModal.classList.add('hidden'); if (imageModalImg) imageModalImg.src = ''; });
+    if (imageModal) imageModal.addEventListener('click', (ev) => { if (ev.target === imageModal) { imageModal.classList.add('hidden'); if (imageModalImg) imageModalImg.src = ''; } });
 
-    // long press on bubble (mobile) -> action cluster
     document.addEventListener('touchstart', (ev) => {
       const bubble = ev.target.closest('.chat-bubble');
       if (!bubble) return;
       st.longPressEl = bubble;
       st.longPressTimer = setTimeout(() => {
         const msgId = bubble.dataset.msgid;
-        openMenu(msgId);
+        const line = bubble.closest('.chat-msg-line');
+        if (line) line.classList.add('long-press');
+        showActionCluster(msgId);
       }, 400);
     }, { passive: true });
     document.addEventListener('touchend', (ev) => {
+      document.querySelectorAll('.chat-msg-line.long-press').forEach(el => el.classList.remove('long-press'));
       clearLongPress();
-      // double tap heart
       const bubble = ev.target.closest('.chat-bubble');
       if (!bubble) return;
       const msgId = bubble.dataset.msgid;
@@ -691,44 +765,16 @@ const PetalChatUI = (() => {
       }
     });
     document.addEventListener('touchmove', clearLongPress);
-    // desktop double click heart
     document.addEventListener('dblclick', (ev) => {
       const bubble = ev.target.closest('.chat-bubble');
       if (!bubble) return;
       doReact(bubble.dataset.msgid, '❤️');
     });
-
-    // hover cluster on desktop
-    document.addEventListener('mouseover', (ev) => {
-      const bubble = ev.target.closest('.chat-bubble');
-      if (!bubble) return;
-      const msgId = bubble.dataset.msgid;
-      if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; }
-      showCluster(msgId);
-    });
-    document.addEventListener('mouseout', (ev) => {
-      const bubble = ev.target.closest('.chat-bubble');
-      if (!bubble) return;
-      const menu = $('msgMenu');
-      if (menu && menu.matches(':hover')) return;
-      hideClusterDelayed();
-    });
-    const msgMenuEl = $('msgMenu');
-    if (msgMenuEl) {
-      msgMenuEl.addEventListener('mouseenter', () => { if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; } });
-      msgMenuEl.addEventListener('mouseleave', () => { hideClusterDelayed(); });
-    }
   }
 
-  /* ---------- message container (no click-to-open; cluster via hover/long-press) ---------- */
   function bindContainer() {
     const container = $('container');
     if (!container) return;
-    // voice player custom controls handled in bindVoicePlayer via delegation on container
-  }
-
-  function bindPinnedBar() {
-    // handled in bindOverlays via delegation
   }
 
   function scrollToMsg(msgId) {
@@ -743,7 +789,6 @@ const PetalChatUI = (() => {
     el.className = 'chat-msg' + (isError && text ? ' error' : '');
   }
 
-  /* ---------- public ---------- */
   return {
     init: init,
     switchConversation: switchConversation,
