@@ -188,32 +188,41 @@
         <div class="admin-chat">
           <aside class="conv-list" id="convList"></aside>
           <section class="chat-main">
-      <div class="chat-head" id="adminChatHead">Select a conversation</div>
-      <div id="adminPinnedBar" class="pinned-bar hidden"></div>
-      <div id="adminChatMessages" class="chat-messages"></div>
-      <div id="adminChatMsg" class="msg" style="padding:0 .75rem;"></div>
-      <form id="adminChatForm" class="chat-input">
-        <input id="adminChatText" placeholder="Write a reply..." autocomplete="off" required>
-        <input type="file" id="adminChatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
-        <button type="button" class="icon-btn" id="adminChatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
-        <button type="button" class="icon-btn" id="adminChatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
-        <button class="btn" type="submit">Send</button>
-      </form>
+            <div class="chat-head" id="adminChatHead">
+              <img id="adminChatHeadAvatar" class="chat-head-avatar" src="logo.svg" alt="Customer">
+              <div>
+                <strong id="adminChatHeadName">Select a conversation</strong>
+                <div id="adminChatHeadSub" class="muted">Choose a customer on the left</div>
+              </div>
+            </div>
+            <div id="adminPinnedBar" class="chat-pinned-bar hidden"></div>
+            <div id="adminChatMessages" class="chat-messages"></div>
+            <div id="adminChatMsg" class="chat-msg" style="padding:0 .75rem;"></div>
 
-      <div id="adminVoiceRecorder" class="voice-recorder hidden">
-        <div class="voice-status" id="adminVoiceStatus">Recording&hellip;</div>
-        <div class="voice-timer" id="adminVoiceTimer">0:00</div>
-        <button type="button" class="btn btn-danger" id="adminVoiceStop">Stop</button>
-        <button type="button" class="btn btn-outline" id="adminVoiceCancel">Cancel</button>
-      </div>
-      <div id="adminVoicePreview" class="voice-preview hidden">
-        <audio id="adminVoiceAudio" controls></audio>
-        <div class="row" style="justify-content:flex-end; gap:.5rem; margin-top:.4rem;">
-          <button type="button" class="btn btn-outline" id="adminVoiceRetry">Re-record</button>
-          <button type="button" class="btn" id="adminVoiceSend">Send</button>
-        </div>
-      </div>
-    </section>
+            <form id="adminChatForm" class="chat-input">
+              <input type="file" id="adminChatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
+              <button type="button" class="chat-composer-btn" id="adminChatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
+              <textarea id="adminChatText" placeholder="Write a reply..." autocomplete="off" rows="1" data-maxrows="5"></textarea>
+              <button type="button" class="chat-composer-btn" id="adminChatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
+              <button type="submit" class="chat-composer-send" id="adminChatSend" aria-label="Send">➤</button>
+            </form>
+
+            <div id="adminVoiceRecorder" class="chat-voice-recorder hidden">
+              <div class="chat-voice-status" id="adminVoiceStatus">Recording&hellip;</div>
+              <div class="chat-voice-timer" id="adminVoiceTimer">0:00</div>
+              <button type="button" class="chat-btn-danger" id="adminVoiceStop">Stop</button>
+              <button type="button" class="chat-btn-outline" id="adminVoiceCancel">Cancel</button>
+            </div>
+            <div id="adminVoicePreview" class="chat-voice-preview hidden">
+              <audio id="adminVoiceAudio" controls></audio>
+              <div class="row" style="justify-content:flex-end; gap:.5rem; margin-top:.4rem;">
+                <button type="button" class="chat-btn-outline" id="adminVoiceRetry">Re-record</button>
+                <button type="button" class="chat-btn" id="adminVoiceSend">Send</button>
+              </div>
+            </div>
+
+            <button type="button" class="chat-new-msg-btn" id="adminNewMsgBtn" aria-label="Go to newest messages">↓ New messages</button>
+          </section>
         </div>
       </section>
 
@@ -227,18 +236,23 @@
     </div>
   </div>
 
-  <!-- Message actions menu (admin messages) -->
-  <div id="adminMsgMenu" class="msg-menu hidden">
-    <div class="msg-menu-items">
-      <button class="msg-menu-item" id="adminMenuReact">React</button>
-      <button class="msg-menu-item" id="adminMenuPin">Pin</button>
-      <button class="msg-menu-item btn-danger" id="adminMenuUnsend">Unsend</button>
+  <!-- Message action cluster (admin messages) -->
+  <div id="adminMsgMenu" class="chat-msg-menu hidden">
+    <div class="chat-msg-menu-items">
+      <button class="chat-msg-menu-item" id="adminMenuReact">React</button>
+      <button class="chat-msg-menu-item" id="adminMenuPin">Pin</button>
+      <button class="chat-msg-menu-item chat-btn-danger" id="adminMenuUnsend">Unsend</button>
     </div>
   </div>
 
   <!-- Reaction picker (admin messages) -->
-  <div id="adminMsgPicker" class="msg-picker hidden">
-    <div class="msg-picker-items" id="adminMsgPickerItems"></div>
+  <div id="adminMsgPicker" class="chat-msg-picker hidden">
+    <div class="chat-msg-picker-items" id="adminMsgPickerItems"></div>
+  </div>
+
+  <!-- Reaction popover (admin messages) -->
+  <div id="adminReactionPopover" class="chat-msg-popover hidden">
+    <div class="chat-msg-popover-items" id="adminReactionPopoverItems"></div>
   </div>
 
   <!-- 7. Reports and Analytics -->
@@ -375,6 +389,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/chat-ui.js"></script>
   <script>
     (async () => {
     await PetalApp.init();
@@ -1282,23 +1297,27 @@
     };
 
     /* ---------- Messages ---------- */
-    let currentUserId = null;
-    let customerProfiles = [];
+    let adminCurrentUserId = null;
+    let adminCustomerProfiles = [];
 
     async function refreshCustomerProfiles() {
-      customerProfiles = await PetalApp.getAllProfiles(true);
+      adminCustomerProfiles = await PetalApp.getAllProfiles(true);
     }
 
     function profileOf(userId) {
-      return customerProfiles.find(p => p.id === userId) || null;
+      return adminCustomerProfiles.find(p => p.id === userId) || null;
     }
 
-    function fmtTime(iso) {
+    function relativeTime(iso) {
       const d = new Date(iso);
-      const today = new Date().toDateString() === d.toDateString();
-      return today
-        ? d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })
-        : d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+      const now = new Date();
+      const sec = Math.floor((now - d) / 1000);
+      if (sec < 60) return 'just now';
+      const min = Math.floor(sec / 60);
+      if (min < 60) return min + 'm';
+      const h = Math.floor(min / 60);
+      if (h < 24) return h + 'h';
+      return d.toLocaleDateString('en-PH', { weekday: 'short' });
     }
 
     function renderConversations() {
@@ -1316,343 +1335,79 @@
           : `<span class="avatar avatar-fallback">${(nickname || 'U').charAt(0).toUpperCase()}</span>`;
         const last = c.last ? (c.last.sender === 'admin' ? 'You: ' : '') + PetalApp.escapeHtml(c.preview || '') : 'No messages';
         return `
-        <button class="conv-item ${currentUserId === c.userId ? 'active' : ''}" onclick="openConversation(this.dataset.id)" data-id="${PetalApp.escapeHtml(c.userId)}">
+        <button class="conv-item ${adminCurrentUserId === c.userId ? 'active' : ''}" onclick="adminOpenConversation(this.dataset.id)" data-id="${PetalApp.escapeHtml(c.userId)}">
           ${avatar}
           <div class="conv-info">
             <div class="conv-name">${PetalApp.escapeHtml(nickname)}</div>
             <div class="conv-last">${last}</div>
           </div>
+          <div class="conv-meta">${relativeTime(c.last ? c.last.created_at : new Date().toISOString())}</div>
           ${c.unread ? `<span class="conv-badge">${c.unread}</span>` : ''}
         </button>`;
       }).join('') || '<p class="chart-empty" style="padding:1rem">No conversations yet. Customer messages will appear here.</p>';
     }
 
-    const ADMIN_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-    const ADMIN_ME_SENDER = 'admin';
-    let adminOpenMenuId = null;
-    let adminOpenPickerId = null;
-    let adminMediaRecorder = null;
-    let adminAudioChunks = [];
-    let adminVoiceSeconds = 0;
-    let adminVoiceTimerId = null;
-    let adminVoiceStream = null;
-    let adminVoiceBlob = null;
-
-    const adminImageModal = document.getElementById('adminImageModal');
-    const adminImageModalImg = document.getElementById('adminImageModalImg');
-    const adminMsgMenu = document.getElementById('adminMsgMenu');
-    const adminMsgPicker = document.getElementById('adminMsgPicker');
-    const adminMsgPickerItems = document.getElementById('adminMsgPickerItems');
-
-    function adminCloseMenus() {
-      adminOpenMenuId = null;
-      adminOpenPickerId = null;
-      adminMsgMenu.classList.add('hidden');
-      adminMsgPicker.classList.add('hidden');
-    }
-
-    document.addEventListener('click', e => {
-      const trig = e.target.closest('.msg-action-btn, [data-react]');
-      if (!adminMsgMenu.contains(e.target) && !adminMsgPicker.contains(e.target) && !trig) adminCloseMenus();
-    });
-
-    async function adminLoadAttachmentUrls(msgs) {
-      const urls = {};
-      await Promise.all(msgs.filter(m => (m.kind === 'image' || m.kind === 'voice') && m.attachment_path && !m.deleted_at).map(async (m) => {
-        try { urls[m.id] = await PetalApp.getAttachmentUrl(m.attachment_path); } catch (err) { urls[m.id] = null; }
-      }));
-      return urls;
-    }
-
-    function adminReactionsHtml(m) {
-      const r = PetalApp.reactionsFor(m.id);
-      const items = Object.entries(r.counts).map(([emoji, count]) => {
-        const active = r.own === emoji ? ' active' : '';
-        return `<span class="reaction" data-react="${PetalApp.escapeHtml(emoji)}" onclick="adminReactToMsg(this, '${PetalApp.escapeHtml(m.id)}', '${PetalApp.escapeHtml(emoji)}')">${emoji}<span class="reaction-count">${count}</span></span>`;
-      }).join('');
-      const ownLabel = r.own ? ` (you)` : '';
-      return items.length ? `<div class="reactions">${items.join('')}${ownLabel ? '<span class="reaction-own">You' + ownLabel + '</span>' : ''}</div>` : '';
-    }
-
-    function adminMsgMenuHtml(m) {
-      const own = m.sender === ADMIN_ME_SENDER;
-      return `
-      <div class="msg-actions" data-msgid="${PetalApp.escapeHtml(m.id)}">
-        ${own ? `<button class="msg-action-btn" data-id="${PetalApp.escapeHtml(m.id)}" onclick="adminOpenMsgMenu(this)">&#8230;</button>` : ''}
-      </div>`;
-    }
-
-    function adminBubbleHtml(m, urls) {
-      const e = PetalApp.escapeHtml;
-      const own = m.sender === ADMIN_ME_SENDER;
-      const isUnsent = !!m.deleted_at;
-      const isPinned = !!m.pinned_at;
-      const time = fmtTime(m.created_at);
-      const pinnedBadge = isPinned ? '<span class="pinned-badge">Pinned</span>' : '';
-      const reactions = adminReactionsHtml(m);
-      let bodyHtml = '';
-      let attachHtml = '';
-      if (isUnsent) {
-        bodyHtml = '<span class="unsent">This message was unsent</span>';
-      } else if (m.kind === 'image') {
-        const url = urls[m.id] || '';
-        attachHtml = `<img class="chat-img" src="${e(url)}" data-msgid="${e(m.id)}" alt="Photo" onclick="adminOpenImage(this, '${e(m.id)}')">`;
-      } else if (m.kind === 'voice') {
-        const url = urls[m.id] || '';
-        const dur = m.duration_seconds ? ' (' + Math.floor(m.duration_seconds) + 's)' : '';
-        attachHtml = `<audio class="chat-voice" src="${e(url)}" controls></audio><div class="voice-dur">${e('Voice message' + dur)}</div>`;
-      } else {
-        bodyHtml = e(m.body);
-      }
-      return `
-      <div class="msg-row ${own ? 'mine' : 'them'}">
-        <div class="bubble-wrap">
-          ${pinnedBadge}
-          <div class="bubble">${bodyHtml}${attachHtml}</div>
-          <span class="time">${time}</span>
-          ${reactions}
-          ${adminMsgMenuHtml(m)}
-        </div>
-      </div>`;
-    }
-
-    function adminMessagePreview(m) {
-      if (m.deleted_at) return 'Message unsent';
-      if (m.kind === 'image') return '📷 Photo';
-      if (m.kind === 'voice') return '🎤 Voice message';
-      return m.body || '';
-    }
-
-    async function renderAdminChat() {
-      const head = document.getElementById('adminChatHead');
-      const box = document.getElementById('adminChatMessages');
-      const pinnedBar = document.getElementById('adminPinnedBar');
-      const chatMsg = document.getElementById('adminChatMsg');
-      if (!currentUserId) {
-        head.textContent = 'Select a conversation';
-        box.innerHTML = '<div class="chat-empty">Choose a customer on the left to view the conversation.</div>';
-        pinnedBar.classList.add('hidden');
-        chatMsg.textContent = '';
-        return;
-      }
-      const p = profileOf(currentUserId);
-      head.textContent = p ? `Chat with ${p.nickname || 'Customer'}` : 'Conversation';
-      const msgs = PetalApp.getMessages().filter(m => m.user_id === currentUserId);
-      const urls = await adminLoadAttachmentUrls(msgs);
-      if (!msgs.length) {
-        box.innerHTML = '<div class="chat-empty">No messages in this conversation yet.</div>';
-        pinnedBar.classList.add('hidden');
-        chatMsg.textContent = '';
-        return;
-      }
-      const pinned = msgs.filter(m => m.pinned_at && !m.deleted_at).slice(0, 3);
-      pinnedBar.innerHTML = pinned.map(m => {
-        const e = PetalApp.escapeHtml;
-        return `<div class="pinned-item" data-msgid="${e(m.id)}" onclick="adminScrollToMsg('${e(m.id)}')">${e(adminMessagePreview(m))}</div>`;
-      }).join('');
-      pinnedBar.classList.toggle('hidden', pinned.length === 0);
-      box.innerHTML = msgs.map(m => adminBubbleHtml(m, urls)).join('');
-      box.scrollTop = box.scrollHeight;
-      chatMsg.textContent = '';
-    }
-
-    window.adminScrollToMsg = (id) => {
-      const el = document.querySelector('[data-msgid="' + PetalApp.escapeHtml(id) + '"]');
-      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); adminCloseMenus(); }
-    };
-
-    window.adminOpenMsgMenu = (btn) => {
-      const id = btn.dataset.id;
-      if (adminOpenMenuId === id) { adminCloseMenus(); return; }
-      adminOpenMenuId = id;
-      adminOpenPickerId = null;
-      adminMsgPicker.classList.add('hidden');
-      const rect = btn.getBoundingClientRect();
-      adminMsgMenu.style.left = Math.max(8, rect.left - 90) + 'px';
-      adminMsgMenu.style.top = Math.max(8, rect.top - 52) + 'px';
-      adminMsgMenu.classList.remove('hidden');
-      adminMsgMenu.dataset.msgid = id;
-    };
-
-    window.adminReactToMsg = (btn, messageId, emoji) => {
-      adminCloseMenus();
-      adminOpenPickerId = messageId;
-      adminMsgPickerItems.innerHTML = ADMIN_EMOJIS.map(e => `
-        <button class="reaction-pick" onclick="adminPickReaction('${PetalApp.escapeHtml(messageId)}', '${PetalApp.escapeHtml(e)}')">${e}</button>
-      `).join('');
-      const rect = btn.getBoundingClientRect();
-      adminMsgPicker.style.left = rect.left + 'px';
-      adminMsgPicker.style.top = (rect.top + rect.height + 6) + 'px';
-      adminMsgPicker.classList.remove('hidden');
-    };
-
-    window.adminPickReaction = async (messageId, emoji) => {
-      adminCloseMenus();
-      const res = await PetalApp.reactToMessage(messageId, emoji);
-      if (!res.ok) { document.getElementById('adminChatMsg').textContent = res.message || 'Could not react.'; return; }
-      await refreshAll();
-      renderConversations();
-      renderAdminChat();
-    };
-
-    async function adminDoUnsend(id) {
-      adminCloseMenus();
-      const res = await PetalApp.unsendMessage(id);
-      if (!res.ok) { document.getElementById('adminChatMsg').textContent = res.message || 'Could not unsend message.'; return; }
-      await refreshAll();
-      renderConversations();
-      renderAdminChat();
-    }
-
-    async function adminDoPin(id, pinned) {
-      adminCloseMenus();
-      const res = await PetalApp.pinMessage(id, pinned);
-      if (!res.ok) { document.getElementById('adminChatMsg').textContent = res.message || 'Could not ' + (pinned ? 'pin' : 'unpin') + ' message.'; return; }
-      await refreshAll();
-      renderConversations();
-      renderAdminChat();
-    }
-
-    /* ---------- Admin voice recording ---------- */
-    function adminSetRecordingUI(recording) {
-      document.getElementById('adminChatMicBtn').classList.toggle('recording', recording);
-      document.getElementById('adminVoiceRecorder').classList.toggle('hidden', !recording);
-      document.getElementById('adminVoicePreview').classList.add('hidden');
-      adminVoiceBlob = null;
-      if (!recording) { adminVoiceSeconds = 0; document.getElementById('adminVoiceTimer').textContent = '0:00'; }
-    }
-
-    async function adminStartRecording() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        adminVoiceStream = stream;
-        let mime = 'audio/webm';
-        if (!MediaRecorder.isTypeSupported(mime)) mime = 'audio/ogg';
-        if (!MediaRecorder.isTypeSupported(mime)) mime = 'audio/mp4';
-        if (!MediaRecorder.isTypeSupported(mime)) { document.getElementById('adminChatMsg').textContent = 'Voice recording is not supported by this browser.'; return; }
-        adminMediaRecorder = new MediaRecorder(stream, { mimeType: mime });
-        adminAudioChunks = [];
-        adminMediaRecorder.ondataavailable = e => { if (e.data.size) adminAudioChunks.push(e.data); };
-        adminMediaRecorder.onstop = () => {
-          const blob = new Blob(adminAudioChunks, { type: mime });
-          if (adminVoiceTimerId) { clearInterval(adminVoiceTimerId); adminVoiceTimerId = null; }
-          adminSetRecordingUI(false);
-          const url = URL.createObjectURL(blob);
-          document.getElementById('adminVoiceAudio').src = url;
-          adminVoiceBlob = blob;
-          document.getElementById('adminVoicePreview').classList.remove('hidden');
-        };
-        adminMediaRecorder.start(1000);
-        adminVoiceSeconds = 0;
-        document.getElementById('adminVoiceTimer').textContent = '0:00';
-        adminVoiceTimerId = setInterval(() => {
-          adminVoiceSeconds++;
-          document.getElementById('adminVoiceTimer').textContent = Math.floor(adminVoiceSeconds / 60) + ':' + String(adminVoiceSeconds % 60).padStart(2, '0');
-          if (adminVoiceSeconds >= 120) adminStopRecording();
-        }, 1000);
-      } catch (err) {
-        document.getElementById('adminChatMsg').textContent = 'Microphone access denied or unavailable. Text and photo still work.';
-      }
-    }
-
-    function adminStopRecording() {
-      if (adminMediaRecorder && adminMediaRecorder.state !== 'inactive') adminMediaRecorder.stop();
-      if (adminVoiceStream) { adminVoiceStream.getTracks().forEach(t => t.stop()); adminVoiceStream = null; }
-    }
-
-    document.getElementById('adminChatMicBtn').addEventListener('click', () => {
-      adminCloseMenus();
-      if (adminMediaRecorder && adminMediaRecorder.state === 'recording') { adminStopRecording(); return; }
-      adminStartRecording();
-    });
-    document.getElementById('adminVoiceStop').addEventListener('click', adminStopRecording);
-    document.getElementById('adminVoiceCancel').addEventListener('click', () => {
-      adminStopRecording();
-      adminSetRecordingUI(false);
-      document.getElementById('adminVoicePreview').classList.add('hidden');
-      adminVoiceBlob = null;
-    });
-    document.getElementById('adminVoiceRetry').addEventListener('click', () => {
-      document.getElementById('adminVoicePreview').classList.add('hidden');
-      adminVoiceBlob = null;
-      adminStartRecording();
-    });
-    document.getElementById('adminVoiceSend').addEventListener('click', async () => {
-      if (!adminVoiceBlob || !currentUserId) return;
-      const sendBtn = document.getElementById('adminVoiceSend');
-      sendBtn.disabled = true;
-      const res = await PetalApp.sendVoice(currentUserId, 'admin', adminVoiceBlob, adminVoiceSeconds);
-      sendBtn.disabled = false;
-      document.getElementById('adminVoicePreview').classList.add('hidden');
-      adminVoiceBlob = null;
-      document.getElementById('adminVoiceAudio').src = '';
-      if (!res.ok) { document.getElementById('adminChatMsg').textContent = res.message || 'Could not send voice message.'; return; }
-      document.getElementById('adminChatText').value = '';
-      await refreshAll();
-      renderConversations();
-      renderAdminChat();
-    });
-
-    /* ---------- Admin photo ---------- */
-    document.getElementById('adminChatPhotoBtn').addEventListener('click', () => { adminCloseMenus(); document.getElementById('adminChatPhoto').click(); });
-    document.getElementById('adminChatPhoto').addEventListener('change', async () => {
-      const file = document.getElementById('adminChatPhoto').files && document.getElementById('adminChatPhoto').files[0];
-      if (!file) return;
-      document.getElementById('adminChatPhoto').value = '';
-      if (!currentUserId) return;
-      const res = await PetalApp.sendImage(currentUserId, 'admin', file);
-      if (!res.ok) { document.getElementById('adminChatMsg').textContent = res.message || 'Could not send photo.'; return; }
-      await refreshAll();
-      renderConversations();
-      renderAdminChat();
-    });
-
-    /* ---------- Admin image lightbox ---------- */
-    window.adminOpenImage = (el, msgId) => {
-      adminCloseMenus();
-      adminImageModalImg.src = el.src;
-      adminImageModal.classList.remove('hidden');
-    };
-    document.getElementById('adminImageClose').addEventListener('click', () => { adminImageModal.classList.add('hidden'); adminImageModalImg.src = ''; });
-    adminImageModal.addEventListener('click', e => { if (e.target === adminImageModal) { adminImageModal.classList.add('hidden'); adminImageModalImg.src = ''; } });
-
-    /* ---------- Admin message actions ---------- */
-    document.getElementById('adminMenuUnsend').addEventListener('click', () => {
-      const id = adminMsgMenu.dataset.msgid;
-      if (!id) return;
-      if (!confirm('Unsend this message? It will be removed for everyone.')) return;
-      adminDoUnsend(id);
-    });
-    document.getElementById('adminMenuPin').addEventListener('click', () => {
-      const id = adminMsgMenu.dataset.msgid;
-      if (!id) return;
-      const m = PetalApp.getMessages().find(x => x.id === id);
-      const pinned = !!m && !!m.pinned_at;
-      adminDoPin(id, !pinned);
-    });
-
-    window.openConversation = async (userId) => {
-      currentUserId = userId;
+    window.adminOpenConversation = async (userId) => {
+      adminCurrentUserId = userId;
       await PetalApp.markRead(userId, 'admin');
       await refreshAll();
       renderConversations();
-      renderAdminChat();
+      const p = profileOf(userId);
+      PetalChatUI.switchConversation({ nickname: p ? (p.nickname || '') : 'Customer', avatar: p ? p.avatar : '' }, userId);
     };
 
-    document.getElementById('adminChatForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!currentUserId) return;
-      const input = document.getElementById('adminChatText');
-      if (!input.value.trim()) return;
-      const res = await PetalApp.sendMessage(currentUserId, 'admin', input.value);
-      if (!res.ok) { alert(res.message || 'Could not send message.'); return; }
-      input.value = '';
-      await refreshAll();
-      renderConversations();
-      renderAdminChat();
+    PetalChatUI.init({
+      me: null,
+      meSender: 'admin',
+      other: { nickname: 'Customer', avatar: '' },
+      conversationUserId: null,
+      markRead: () => adminCurrentUserId ? PetalApp.markRead(adminCurrentUserId, 'admin') : Promise.resolve(),
+      getMessages: () => PetalApp.getMessages(),
+      sendText: (text) => adminCurrentUserId ? PetalApp.sendMessage(adminCurrentUserId, 'admin', text) : Promise.resolve({ ok: false, message: 'No conversation selected.' }),
+      sendImage: (file) => adminCurrentUserId ? PetalApp.sendImage(adminCurrentUserId, 'admin', file) : Promise.resolve({ ok: false, message: 'No conversation selected.' }),
+      sendVoice: (blob, seconds) => adminCurrentUserId ? PetalApp.sendVoice(adminCurrentUserId, 'admin', blob, seconds) : Promise.resolve({ ok: false, message: 'No conversation selected.' }),
+      unsend: (id) => PetalApp.unsendMessage(id),
+      pin: (id, pinned) => PetalApp.pinMessage(id, pinned),
+      react: (messageId, emoji) => PetalApp.reactToMessage(messageId, emoji),
+      getAttachmentUrl: (path) => PetalApp.getAttachmentUrl(path),
+      elements: {
+        container: document.getElementById('adminChatMessages'),
+        pinnedBar: document.getElementById('adminPinnedBar'),
+        headerName: document.getElementById('adminChatHeadName'),
+        form: document.getElementById('adminChatForm'),
+        textarea: document.getElementById('adminChatText'),
+        sendBtn: document.getElementById('adminChatSend'),
+        photoBtn: document.getElementById('adminChatPhotoBtn'),
+        photoInput: document.getElementById('adminChatPhoto'),
+        micBtn: document.getElementById('adminChatMicBtn'),
+        voiceRecorder: document.getElementById('adminVoiceRecorder'),
+        voicePreview: document.getElementById('adminVoicePreview'),
+        voiceAudio: document.getElementById('adminVoiceAudio'),
+        voiceTimer: document.getElementById('adminVoiceTimer'),
+        voiceStop: document.getElementById('adminVoiceStop'),
+        voiceCancel: document.getElementById('adminVoiceCancel'),
+        voiceRetry: document.getElementById('adminVoiceRetry'),
+        voiceSend: document.getElementById('adminVoiceSend'),
+        chatMsg: document.getElementById('adminChatMsg'),
+        imageModal: document.getElementById('adminImageModal'),
+        imageModalImg: document.getElementById('adminImageModalImg'),
+        imageClose: document.getElementById('adminImageClose'),
+        msgMenu: document.getElementById('adminMsgMenu'),
+        msgPicker: document.getElementById('adminMsgPicker'),
+        msgPickerItems: document.getElementById('adminMsgPickerItems'),
+        menuReact: document.getElementById('adminMenuReact'),
+        menuPin: document.getElementById('adminMenuPin'),
+        menuUnsend: document.getElementById('adminMenuUnsend'),
+        newMsgBtn: document.getElementById('adminNewMsgBtn'),
+        reactionPopover: document.getElementById('adminReactionPopover'),
+        reactionPopoverItems: document.getElementById('adminReactionPopoverItems'),
+      }
     });
 
-    function renderMessages() { renderConversations(); renderAdminChat(); }
+    function renderAdminMessages() {
+      renderConversations();
+      PetalChatUI.refresh();
+    }
 
     async function refreshPolling() {
       try {
@@ -1664,10 +1419,10 @@
 
     setInterval(async () => {
       try {
-        if (currentUserId) await PetalApp.markRead(currentUserId, 'admin');
+        if (adminCurrentUserId) await PetalApp.markRead(adminCurrentUserId, 'admin');
         await refreshPolling();
         renderConversations();
-        renderAdminChat();
+        PetalChatUI.refresh();
       } catch (err) {
         console.warn('Petal-PH: messages poll failed', err);
       }
@@ -1747,7 +1502,7 @@
       ['Track Flower Stocks', renderStocks],
       ['Delivery Management', renderDelivery],
       ['Customer Management', renderCustomers],
-      ['Messages', renderMessages],
+      ['Messages', renderAdminMessages],
       ['Reports', renderReports]
     ];
 

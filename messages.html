@@ -36,32 +36,40 @@
     </aside>
 
     <section class="chat-main">
-      <div id="chatHead" class="chat-head">Conversation</div>
-      <div id="pinnedBar" class="pinned-bar hidden"></div>
-      <div id="chatMessages" class="chat-messages"></div>
-      <div id="chatMsg" class="msg" style="padding:0 .75rem;"></div>
-
-      <form id="chatForm" class="chat-input">
-        <input id="chatText" placeholder="Message Petal-PH Admin..." autocomplete="off" required>
-        <input type="file" id="chatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
-        <button type="button" class="icon-btn" id="chatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
-        <button type="button" class="icon-btn" id="chatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
-        <button class="btn" type="submit">Send</button>
-      </form>
-
-      <div id="voiceRecorder" class="voice-recorder hidden">
-        <div class="voice-status" id="voiceStatus">Recording&hellip;</div>
-        <div class="voice-timer" id="voiceTimer">0:00</div>
-        <button type="button" class="btn btn-danger" id="voiceStop">Stop</button>
-        <button type="button" class="btn btn-outline" id="voiceCancel">Cancel</button>
-      </div>
-      <div id="voicePreview" class="voice-preview hidden">
-        <audio id="voiceAudio" controls></audio>
-        <div class="row" style="justify-content:flex-end; gap:.5rem; margin-top:.4rem;">
-          <button type="button" class="btn btn-outline" id="voiceRetry">Re-record</button>
-          <button type="button" class="btn" id="voiceSend">Send</button>
+      <div class="chat-head" id="chatHead">
+        <img id="chatHeadAvatar" class="chat-head-avatar" src="logo.svg" alt="Petal-PH Admin">
+        <div>
+          <strong id="chatHeadName">Petal-PH Admin</strong>
+          <div id="chatHeadSub" class="muted">Customer support</div>
         </div>
       </div>
+      <div id="pinnedBar" class="chat-pinned-bar hidden"></div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div id="chatMsg" class="chat-msg" style="padding:0 .75rem;"></div>
+
+      <form id="chatForm" class="chat-input">
+        <input type="file" id="chatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
+        <button type="button" class="chat-composer-btn" id="chatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
+        <textarea id="chatText" placeholder="Message Petal-PH Admin..." autocomplete="off" rows="1" data-maxrows="5"></textarea>
+        <button type="button" class="chat-composer-btn" id="chatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
+        <button type="submit" class="chat-composer-send" id="chatSend" aria-label="Send">➤</button>
+      </form>
+
+      <div id="voiceRecorder" class="chat-voice-recorder hidden">
+        <div class="chat-voice-status" id="voiceStatus">Recording&hellip;</div>
+        <div class="chat-voice-timer" id="voiceTimer">0:00</div>
+        <button type="button" class="chat-btn-danger" id="voiceStop">Stop</button>
+        <button type="button" class="chat-btn-outline" id="voiceCancel">Cancel</button>
+      </div>
+      <div id="voicePreview" class="chat-voice-preview hidden">
+        <audio id="voiceAudio" controls></audio>
+        <div class="row" style="justify-content:flex-end; gap:.5rem; margin-top:.4rem;">
+          <button type="button" class="chat-btn-outline" id="voiceRetry">Re-record</button>
+          <button type="button" class="chat-btn" id="voiceSend">Send</button>
+        </div>
+      </div>
+
+      <button type="button" class="chat-new-msg-btn" id="newMsgBtn" aria-label="Go to newest messages">↓ New messages</button>
     </section>
   </main>
 
@@ -75,23 +83,29 @@
     </div>
   </div>
 
-  <!-- Message actions menu -->
-  <div id="msgMenu" class="msg-menu hidden">
-    <div class="msg-menu-items">
-      <button class="msg-menu-item" id="menuReact">React</button>
-      <button class="msg-menu-item" id="menuPin">Pin</button>
-      <button class="msg-menu-item btn-danger" id="menuUnsend">Unsend</button>
+  <!-- Message action cluster -->
+  <div id="msgMenu" class="chat-msg-menu hidden">
+    <div class="chat-msg-menu-items">
+      <button class="chat-msg-menu-item" id="menuReact">React</button>
+      <button class="chat-msg-menu-item" id="menuPin">Pin</button>
+      <button class="chat-msg-menu-item chat-btn-danger" id="menuUnsend">Unsend</button>
     </div>
   </div>
 
   <!-- Reaction picker -->
-  <div id="msgPicker" class="msg-picker hidden">
-    <div class="msg-picker-items" id="msgPickerItems"></div>
+  <div id="msgPicker" class="chat-msg-picker hidden">
+    <div class="chat-msg-picker-items" id="msgPickerItems"></div>
+  </div>
+
+  <!-- Reaction popover -->
+  <div id="reactionPopover" class="chat-msg-popover hidden">
+    <div class="chat-msg-popover-items" id="reactionPopoverItems"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0" integrity="sha384-NNePyabYRaJyedI6EQAY7SV5Z8/0sQkuQ5WVfhKm0H+j0KSugkI2ZMNzw/QtzAWz" crossorigin="anonymous"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/chat-ui.js"></script>
   <script>
     (async () => {
     await PetalApp.init();
@@ -112,358 +126,58 @@
     else { fb.textContent = (user.nickname || 'U').charAt(0).toUpperCase(); }
     document.getElementById('userName').textContent = user.nickname || '';
 
-    const box = document.getElementById('chatMessages');
-    const pinnedBar = document.getElementById('pinnedBar');
-    const form = document.getElementById('chatForm');
-    const input = document.getElementById('chatText');
-    const photoInput = document.getElementById('chatPhoto');
-    const photoBtn = document.getElementById('chatPhotoBtn');
-    const micBtn = document.getElementById('chatMicBtn');
-    const voiceRecorder = document.getElementById('voiceRecorder');
-    const voicePreview = document.getElementById('voicePreview');
-    const voiceAudio = document.getElementById('voiceAudio');
-    const voiceTimer = document.getElementById('voiceTimer');
-    const chatMsg = document.getElementById('chatMsg');
+    const headName = document.getElementById('chatHeadName');
+    const headSub = document.getElementById('chatHeadSub');
+    if (headName) headName.textContent = 'Petal-PH Admin';
+    if (headSub) headSub.textContent = 'Customer support';
 
-    const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-    const MAX_VOICE_SECONDS = 120;
-    const ME_SENDER = 'user';
-
-    let mediaRecorder = null;
-    let audioChunks = [];
-    let voiceSeconds = 0;
-    let voiceTimerId = null;
-    let voiceStream = null;
-    let voiceBlob = null;
-    let openMenuId = null;
-    let openPickerId = null;
-    let imageModalOrder = null;
-
-    const imageModal = document.getElementById('imageModal');
-    const imageModalImg = document.getElementById('imageModalImg');
-    const msgMenu = document.getElementById('msgMenu');
-    const msgPicker = document.getElementById('msgPicker');
-    const msgPickerItems = document.getElementById('msgPickerItems');
-
-    function fmtTime(iso) {
-      const d = new Date(iso);
-      const today = new Date().toDateString() === d.toDateString();
-      return today
-        ? d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })
-        : d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
-    }
-
-    function showChatMsg(text, isError) {
-      chatMsg.textContent = text || '';
-      chatMsg.className = 'msg' + (isError && text ? ' error' : '');
-    }
-
-    function closeMenus() {
-      openMenuId = null;
-      openPickerId = null;
-      msgMenu.classList.add('hidden');
-      msgPicker.classList.add('hidden');
-    }
-
-    document.addEventListener('click', e => {
-      const trig = e.target.closest('.msg-action-btn, [data-react]');
-      if (!msgMenu.contains(e.target) && !msgPicker.contains(e.target) && !trig) closeMenus();
-    });
-
-    async function loadAttachmentUrls(msgs) {
-      const urls = {};
-      await Promise.all(msgs.filter(m => (m.kind === 'image' || m.kind === 'voice') && m.attachment_path && !m.deleted_at).map(async (m) => {
-        try { urls[m.id] = await PetalApp.getAttachmentUrl(m.attachment_path); } catch (err) { urls[m.id] = null; }
-      }));
-      return urls;
-    }
-
-    function reactionsHtml(m) {
-      const r = PetalApp.reactionsFor(m.id);
-      const items = Object.entries(r.counts).map(([emoji, count]) => {
-        const active = r.own === emoji ? ' active' : '';
-        return `<span class="reaction" data-react="${PetalApp.escapeHtml(emoji)}" onclick="reactToMsg(this, '${PetalApp.escapeHtml(m.id)}', '${PetalApp.escapeHtml(emoji)}')">${emoji}<span class="reaction-count">${count}</span></span>`;
-      }).join('');
-      const ownLabel = r.own ? ` (you)` : '';
-      return items.length ? `<div class="reactions">${items.join('')}${ownLabel ? '<span class="reaction-own">You' + ownLabel + '</span>' : ''}</div>` : '';
-    }
-
-    function msgMenuHtml(m) {
-      const own = m.sender === ME_SENDER;
-      const pinned = !!m.pinned_at;
-      return `
-      <div class="msg-actions" data-msgid="${PetalApp.escapeHtml(m.id)}">
-        <button class="msg-action-btn" data-id="${PetalApp.escapeHtml(m.id)}" onclick="openMsgMenu(this)">&#8230;</button>
-      </div>`;
-    }
-
-    function bubbleHtml(m, urls) {
-      const e = PetalApp.escapeHtml;
-      const own = m.sender === ME_SENDER;
-      const isUnsent = !!m.deleted_at;
-      const isPinned = !!m.pinned_at;
-      const time = fmtTime(m.created_at);
-      const pinnedBadge = isPinned ? '<span class="pinned-badge">Pinned</span>' : '';
-      const reactions = reactionsHtml(m);
-      let bodyHtml = '';
-      let attachHtml = '';
-      if (isUnsent) {
-        bodyHtml = '<span class="unsent">This message was unsent</span>';
-      } else if (m.kind === 'image') {
-        const url = urls[m.id] || '';
-        attachHtml = `<img class="chat-img" src="${e(url)}" data-msgid="${e(m.id)}" alt="Photo" onclick="openImage(this, '${e(m.id)}')">`;
-      } else if (m.kind === 'voice') {
-        const url = urls[m.id] || '';
-        const dur = m.duration_seconds ? ' (' + Math.floor(m.duration_seconds) + 's)' : '';
-        attachHtml = `<audio class="chat-voice" src="${e(url)}" controls></audio><div class="voice-dur">${e('Voice message' + dur)}</div>`;
-      } else {
-        bodyHtml = e(m.body);
+    PetalChatUI.init({
+      me: user,
+      meSender: 'user',
+      other: { nickname: 'Petal-PH Admin', avatar: 'logo.svg' },
+      conversationUserId: user.id,
+      markRead: () => PetalApp.markRead(user.id, 'user'),
+      getMessages: () => PetalApp.getMessages(),
+      sendText: (text) => PetalApp.sendMessage(user.id, 'user', text),
+      sendImage: (file) => PetalApp.sendImage(user.id, 'user', file),
+      sendVoice: (blob, seconds) => PetalApp.sendVoice(user.id, 'user', blob, seconds),
+      unsend: (id) => PetalApp.unsendMessage(id),
+      pin: (id, pinned) => PetalApp.pinMessage(id, pinned),
+      react: (messageId, emoji) => PetalApp.reactToMessage(messageId, emoji),
+      getAttachmentUrl: (path) => PetalApp.getAttachmentUrl(path),
+      elements: {
+        container: document.getElementById('chatMessages'),
+        pinnedBar: document.getElementById('pinnedBar'),
+        headerName: document.getElementById('chatHeadName'),
+        form: document.getElementById('chatForm'),
+        textarea: document.getElementById('chatText'),
+        sendBtn: document.getElementById('chatSend'),
+        photoBtn: document.getElementById('chatPhotoBtn'),
+        photoInput: document.getElementById('chatPhoto'),
+        micBtn: document.getElementById('chatMicBtn'),
+        voiceRecorder: document.getElementById('voiceRecorder'),
+        voicePreview: document.getElementById('voicePreview'),
+        voiceAudio: document.getElementById('voiceAudio'),
+        voiceTimer: document.getElementById('voiceTimer'),
+        voiceStop: document.getElementById('voiceStop'),
+        voiceCancel: document.getElementById('voiceCancel'),
+        voiceRetry: document.getElementById('voiceRetry'),
+        voiceSend: document.getElementById('voiceSend'),
+        chatMsg: document.getElementById('chatMsg'),
+        imageModal: document.getElementById('imageModal'),
+        imageModalImg: document.getElementById('imageModalImg'),
+        imageClose: document.getElementById('imageClose'),
+        msgMenu: document.getElementById('msgMenu'),
+        msgPicker: document.getElementById('msgPicker'),
+        msgPickerItems: document.getElementById('msgPickerItems'),
+        menuReact: document.getElementById('menuReact'),
+        menuPin: document.getElementById('menuPin'),
+        menuUnsend: document.getElementById('menuUnsend'),
+        newMsgBtn: document.getElementById('newMsgBtn'),
+        reactionPopover: document.getElementById('reactionPopover'),
+        reactionPopoverItems: document.getElementById('reactionPopoverItems'),
       }
-      return `
-      <div class="msg-row ${own ? 'mine' : 'them'}">
-        <div class="bubble-wrap">
-          ${pinnedBadge}
-          <div class="bubble">${bodyHtml}${attachHtml}</div>
-          <span class="time">${time}</span>
-          ${reactions}
-          ${msgMenuHtml(m)}
-        </div>
-      </div>`;
-    }
-
-    async function renderChat() {
-      const msgs = PetalApp.getMessages();
-      const urls = await loadAttachmentUrls(msgs);
-      if (!msgs.length) {
-        box.innerHTML = '<div class="chat-empty">No messages yet. Say hello to Petal-PH Admin — ask about flowers, orders, or delivery.</div>';
-        pinnedBar.classList.add('hidden');
-        return;
-      }
-      const pinned = msgs.filter(m => m.pinned_at && !m.deleted_at).slice(0, 3);
-      pinnedBar.innerHTML = pinned.map(m => {
-        const e = PetalApp.escapeHtml;
-        return `<div class="pinned-item" data-msgid="${e(m.id)}" onclick="scrollToMsg('${e(m.id)}')">${e(messagePreview(m))}</div>`;
-      }).join('');
-      pinnedBar.classList.toggle('hidden', pinned.length === 0);
-      box.innerHTML = msgs.map(m => bubbleHtml(m, urls)).join('');
-      box.scrollTop = box.scrollHeight;
-    }
-
-    function messagePreview(m) {
-      if (m.deleted_at) return 'Message unsent';
-      if (m.kind === 'image') return '📷 Photo';
-      if (m.kind === 'voice') return '🎤 Voice message';
-      return m.body || '';
-    }
-
-    async function poll() {
-      await PetalApp.markRead(user.id, 'user');
-      await PetalApp.loadOwn();
-      await renderChat();
-    }
-
-    window.scrollToMsg = (id) => {
-      const el = document.querySelector('[data-msgid="' + PetalApp.escapeHtml(id) + '"]');
-      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); closeMenus(); }
-    };
-
-    window.openMsgMenu = (btn) => {
-      const id = btn.dataset.id;
-      if (openMenuId === id) { closeMenus(); return; }
-      openMenuId = id;
-      openPickerId = null;
-      msgPicker.classList.add('hidden');
-      const rect = btn.getBoundingClientRect();
-      msgMenu.style.left = Math.max(8, rect.left - 90) + 'px';
-      msgMenu.style.top = Math.max(8, rect.top - 52) + 'px';
-      msgMenu.classList.remove('hidden');
-      msgMenu.dataset.msgid = id;
-    };
-
-    window.reactToMsg = (btn, messageId, emoji) => {
-      closeMenus();
-      openPickerId = messageId;
-      msgPickerItems.innerHTML = EMOJIS.map(e => `
-        <button class="reaction-pick" onclick="pickReaction('${PetalApp.escapeHtml(messageId)}', '${PetalApp.escapeHtml(e)}')">${e}</button>
-      `).join('');
-      const rect = btn.getBoundingClientRect();
-      msgPicker.style.left = rect.left + 'px';
-      msgPicker.style.top = (rect.top + rect.height + 6) + 'px';
-      msgPicker.classList.remove('hidden');
-    };
-
-    window.pickReaction = async (messageId, emoji) => {
-      closeMenus();
-      const res = await PetalApp.reactToMessage(messageId, emoji);
-      if (!res.ok) { showChatMsg(res.message || 'Could not react.', true); return; }
-      await poll();
-    };
-
-    async function doUnsend(id) {
-      closeMenus();
-      const res = await PetalApp.unsendMessage(id);
-      if (!res.ok) { showChatMsg(res.message || 'Could not unsend message.', true); return; }
-      await poll();
-    }
-
-    async function doPin(id, pinned) {
-      closeMenus();
-      const res = await PetalApp.pinMessage(id, pinned);
-      if (!res.ok) { showChatMsg(res.message || 'Could not ' + (pinned ? 'pin' : 'unpin') + ' message.', true); return; }
-      await poll();
-    }
-
-    /* ---------- Voice recording ---------- */
-    function setRecordingUI(recording) {
-      micBtn.classList.toggle('recording', recording);
-      voiceRecorder.classList.toggle('hidden', !recording);
-      voicePreview.classList.add('hidden');
-      voiceBlob = null;
-      if (!recording) { voiceSeconds = 0; voiceTimer.textContent = '0:00'; }
-    }
-
-    function showVoiceError(text) {
-      showChatMsg(text, true);
-      setRecordingUI(false);
-    }
-
-    async function startRecording() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        voiceStream = stream;
-        let mime = 'audio/webm';
-        if (!MediaRecorder.isTypeSupported(mime)) mime = 'audio/ogg';
-        if (!MediaRecorder.isTypeSupported(mime)) mime = 'audio/mp4';
-        if (!MediaRecorder.isTypeSupported(mime)) { showVoiceError('Voice recording is not supported by this browser.'); return; }
-        mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
-        audioChunks = [];
-        mediaRecorder.ondataavailable = e => { if (e.data.size) audioChunks.push(e.data); };
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(audioChunks, { type: mime });
-          if (voiceTimerId) { clearInterval(voiceTimerId); voiceTimerId = null; }
-          setRecordingUI(false);
-          const url = URL.createObjectURL(blob);
-          voiceAudio.src = url;
-          voiceBlob = blob;
-          voicePreview.classList.remove('hidden');
-        };
-        mediaRecorder.start(1000);
-        voiceSeconds = 0;
-        voiceTimer.textContent = '0:00';
-        voiceTimerId = setInterval(() => {
-          voiceSeconds++;
-          voiceTimer.textContent = Math.floor(voiceSeconds / 60) + ':' + String(voiceSeconds % 60).padStart(2, '0');
-          if (voiceSeconds >= MAX_VOICE_SECONDS) stopRecording();
-        }, 1000);
-      } catch (err) {
-        showVoiceError('Microphone access denied or unavailable. Text and photo still work.');
-      }
-    }
-
-    function stopRecording() {
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-      if (voiceStream) { voiceStream.getTracks().forEach(t => t.stop()); voiceStream = null; }
-    }
-
-    micBtn.addEventListener('click', () => {
-      closeMenus();
-      if (mediaRecorder && mediaRecorder.state === 'recording') { stopRecording(); showVoicePreview(voiceBlob); return; }
-      startRecording();
     });
-
-    document.getElementById('voiceStop').addEventListener('click', () => { stopRecording(); });
-    document.getElementById('voiceCancel').addEventListener('click', () => {
-      stopRecording();
-      setRecordingUI(false);
-      voicePreview.classList.add('hidden');
-      voiceBlob = null;
-    });
-
-    function showVoicePreview() {
-      voiceRecorder.classList.add('hidden');
-      voicePreview.classList.remove('hidden');
-    }
-
-    document.getElementById('voiceRetry').addEventListener('click', () => {
-      voicePreview.classList.add('hidden');
-      voiceBlob = null;
-      startRecording();
-    });
-
-    document.getElementById('voiceSend').addEventListener('click', async () => {
-      if (!voiceBlob) return;
-      const sendBtn = document.getElementById('voiceSend');
-      sendBtn.disabled = true;
-      const res = await PetalApp.sendVoice(user.id, 'user', voiceBlob, voiceSeconds);
-      sendBtn.disabled = false;
-      voicePreview.classList.add('hidden');
-      voiceBlob = null;
-      voiceAudio.src = '';
-      if (!res.ok) { showChatMsg(res.message || 'Could not send voice message.', true); return; }
-      input.value = '';
-      await poll();
-    });
-
-    /* ---------- Photo ---------- */
-    photoBtn.addEventListener('click', () => { closeMenus(); photoInput.click(); });
-    photoInput.addEventListener('change', async () => {
-      const file = photoInput.files && photoInput.files[0];
-      if (!file) return;
-      photoInput.value = '';
-      const res = await PetalApp.sendImage(user.id, 'user', file);
-      if (!res.ok) { showChatMsg(res.message || 'Could not send photo.', true); return; }
-      await poll();
-    });
-
-    /* ---------- Image lightbox ---------- */
-    window.openImage = (el, msgId) => {
-      closeMenus();
-      imageModalOrder = msgId;
-      imageModalImg.src = el.src;
-      imageModal.classList.remove('hidden');
-    };
-    document.getElementById('imageClose').addEventListener('click', () => { imageModal.classList.add('hidden'); imageModalImg.src = ''; });
-    imageModal.addEventListener('click', e => { if (e.target === imageModal) { imageModal.classList.add('hidden'); imageModalImg.src = ''; } });
-
-    /* ---------- Message actions ---------- */
-    document.getElementById('menuUnsend').addEventListener('click', () => {
-      const id = msgMenu.dataset.msgid;
-      if (!id) return;
-      if (!confirm('Unsend this message? It will be removed for everyone.')) return;
-      doUnsend(id);
-    });
-    document.getElementById('menuPin').addEventListener('click', () => {
-      const id = msgMenu.dataset.msgid;
-      if (!id) return;
-      const m = PetalApp.getMessages().find(x => x.id === id);
-      const pinned = !!m && !!m.pinned_at;
-      doPin(id, !pinned);
-    });
-
-    /* ---------- Form submit (text) ---------- */
-    let sendBusy = false;
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (sendBusy) return;
-      const text = input.value;
-      if (!text.trim()) return;
-      const sendBtn = form.querySelector('button[type="submit"]');
-      sendBusy = true;
-      if (sendBtn) sendBtn.disabled = true;
-      let res;
-      try {
-        res = await PetalApp.sendMessage(user.id, 'user', text);
-      } finally {
-        sendBusy = false;
-        if (sendBtn) sendBtn.disabled = false;
-      }
-      if (!res.ok) { showChatMsg(res.message || 'Could not send message.', true); return; }
-      input.value = '';
-      await poll();
-    });
-
-    await poll();
-    setInterval(() => { poll().catch(err => console.warn('Petal-PH: chat poll failed', err)); }, 5000);
     })();
   </script>
 </body>
