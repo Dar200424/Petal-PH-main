@@ -83,8 +83,8 @@ create table if not exists public.messages (
   pinned_at timestamptz,
   pinned_by uuid references public.profiles(id),
   created_at timestamptz default now(),
-  constraint messages_body_or_attachment_check check (length(btrim(body)) > 0 or attachment_path is not null),
-  constraint messages_kind_requires_attachment_check check (kind = 'text' or attachment_path is not null)
+  constraint messages_body_or_attachment_check check (deleted_at is not null or body <> '' or attachment_path is not null),
+  constraint messages_kind_requires_attachment_check check (deleted_at is not null or kind = 'text' or attachment_path is not null)
 );
 
 -- message reactions (one emoji per person per message)
@@ -401,12 +401,8 @@ begin
       raise exception 'Admin only.';
     end if;
   end if;
-  if v_msg.attachment_path is not null then
-    delete from storage.objects
-    where bucket_id = 'chat-media' and name = v_msg.attachment_path;
-  end if;
   update public.messages
-  set deleted_at = now(), body = '', pinned_at = null, pinned_by = null
+  set deleted_at = now(), body = '', pinned_at = null, pinned_by = null, attachment_path = null
   where id = p_message_id;
 end;
 $$;

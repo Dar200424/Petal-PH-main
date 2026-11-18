@@ -401,8 +401,13 @@ let attachmentUrlCache = new Map();
   }
 
   async function unsendMessage(id) {
+    const msg = cache.messages.find(m => m.id === id);
+    const path = msg && msg.attachment_path ? msg.attachment_path : null;
     const { error } = await sb.rpc('unsend_message', { p_message_id: id });
     if (error) return { ok: false, message: error.message };
+    if (path) {
+      try { await sb.storage.from('chat-media').remove([path]); } catch (e) { /* ignore: message already unsent */ }
+    }
     await loadOwn();
     return { ok: true };
   }
