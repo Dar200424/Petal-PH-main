@@ -187,48 +187,37 @@
         <p class="muted">Answer customer questions, follow up on orders, and keep conversations going.</p>
         <div class="admin-chat">
           <aside class="conv-list" id="convList"></aside>
-          <section class="chat-panel">
-            <header class="chat-header" id="adminChatHead">
-              <img id="adminChatHeadAvatar" class="chat-header-avatar hidden" src="" alt="Customer">
-              <span id="adminChatHeadAvatarFallback" class="chat-header-avatar-fallback hidden"></span>
-              <div class="chat-header-info">
-                <div class="chat-header-name" id="adminChatHeadName">Select a conversation</div>
-                <div class="chat-header-sub" id="adminChatHeadSub">Choose a customer on the left</div>
+          <section class="chat-main">
+            <div class="chat-head" id="adminChatHead">
+              <img id="adminChatHeadAvatar" class="chat-head-avatar" src="logo.svg" alt="Customer">
+              <div>
+                <strong id="adminChatHeadName">Select a conversation</strong>
+                <div id="adminChatHeadSub" class="muted">Choose a customer on the left</div>
               </div>
-            </header>
+            </div>
             <div id="adminPinnedBar" class="chat-pinned-bar hidden"></div>
-            <div id="adminChatMessages" class="chat-messages" role="log" aria-live="polite"></div>
+            <div id="adminChatMessages" class="chat-messages"></div>
             <div id="adminChatMsg" class="chat-msg" style="padding:0 .75rem;"></div>
 
-            <form id="adminChatForm" class="chat-composer">
-              <div class="chat-composer-left">
-                <button type="button" class="chat-composer-btn" id="adminChatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
-                <input type="file" id="adminChatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
-              </div>
-              <div class="chat-composer-center">
-                <div class="chat-composer-input-wrap">
-                  <textarea id="adminChatText" class="chat-composer-input" placeholder="Write a reply..." autocomplete="off" rows="1" data-maxrows="5"></textarea>
-                </div>
-              </div>
-              <div class="chat-composer-right">
-                <button type="button" class="chat-composer-btn" id="adminChatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
-                <button type="submit" class="chat-composer-send" id="adminChatSend" aria-label="Send" disabled>➤</button>
-              </div>
+            <form id="adminChatForm" class="chat-input">
+              <input type="file" id="adminChatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
+              <button type="button" class="chat-composer-btn" id="adminChatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
+              <textarea id="adminChatText" placeholder="Write a reply..." autocomplete="off" rows="1" data-maxrows="5"></textarea>
+              <button type="button" class="chat-composer-btn" id="adminChatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
+              <button type="submit" class="chat-composer-send" id="adminChatSend" aria-label="Send">➤</button>
             </form>
 
             <div id="adminVoiceRecorder" class="chat-voice-recorder hidden">
               <div class="chat-voice-status" id="adminVoiceStatus">Recording&hellip;</div>
               <div class="chat-voice-timer" id="adminVoiceTimer">0:00</div>
-              <div class="row" style="justify-content:center; gap:.5rem; margin-top:.25rem;">
-                <button type="button" class="btn btn-outline" id="adminVoiceStop">Stop</button>
-                <button type="button" class="btn btn-outline" id="adminVoiceCancel">Cancel</button>
-              </div>
+              <button type="button" class="chat-btn-danger" id="adminVoiceStop">Stop</button>
+              <button type="button" class="chat-btn-outline" id="adminVoiceCancel">Cancel</button>
             </div>
             <div id="adminVoicePreview" class="chat-voice-preview hidden">
-              <audio id="adminVoiceAudio" class="chat-voice-audio" controls></audio>
-              <div class="row" style="justify-content:center; gap:.5rem; margin-top:.25rem;">
-                <button type="button" class="btn btn-outline" id="adminVoiceRetry">Re-record</button>
-                <button type="button" class="btn" id="adminVoiceSend">Send</button>
+              <audio id="adminVoiceAudio" controls></audio>
+              <div class="row" style="justify-content:flex-end; gap:.5rem; margin-top:.4rem;">
+                <button type="button" class="chat-btn-outline" id="adminVoiceRetry">Re-record</button>
+                <button type="button" class="chat-btn" id="adminVoiceSend">Send</button>
               </div>
             </div>
 
@@ -1364,25 +1353,7 @@
       await refreshAll();
       renderConversations();
       const p = profileOf(userId);
-      const nickname = p ? (p.nickname || '') : 'Customer';
-      const avatar = p ? p.avatar : '';
-      PetalChatUI.switchConversation({ nickname, avatar }, userId);
-      // Update header avatar
-      const avatarImg = document.getElementById('adminChatHeadAvatar');
-      const avatarFallback = document.getElementById('adminChatHeadAvatarFallback');
-      const headerName = document.getElementById('adminChatHeadName');
-      const headerSub = document.getElementById('adminChatHeadSub');
-      if (avatar) {
-        avatarImg.src = avatar;
-        avatarImg.classList.remove('hidden');
-        avatarFallback.classList.add('hidden');
-      } else {
-        avatarImg.classList.add('hidden');
-        avatarFallback.textContent = (nickname || 'U').charAt(0).toUpperCase();
-        avatarFallback.classList.remove('hidden');
-      }
-      if (headerName) headerName.textContent = nickname;
-      if (headerSub) headerSub.textContent = 'Petal-PH customer';
+      PetalChatUI.switchConversation({ nickname: p ? (p.nickname || '') : 'Customer', avatar: p ? p.avatar : '' }, userId);
     };
 
     PetalChatUI.init({

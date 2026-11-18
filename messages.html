@@ -35,47 +35,37 @@
       </ul>
     </aside>
 
-    <section class="chat-panel">
-      <header class="chat-header-customer" id="chatHead">
-        <img class="brand-logo" src="logo.svg" alt="Petal-PH logo">
-        <div class="chat-header-info">
-          <div class="chat-header-customer-name" id="chatHeadName">Petal-PH Admin</div>
-          <div class="chat-header-customer-sub" id="chatHeadSub">Customer support</div>
+    <section class="chat-main">
+      <div class="chat-head" id="chatHead">
+        <img id="chatHeadAvatar" class="chat-head-avatar" src="logo.svg" alt="Petal-PH Admin">
+        <div>
+          <strong id="chatHeadName">Petal-PH Admin</strong>
+          <div id="chatHeadSub" class="muted">Customer support</div>
         </div>
-      </header>
+      </div>
       <div id="pinnedBar" class="chat-pinned-bar hidden"></div>
-      <div id="chatMessages" class="chat-messages" role="log" aria-live="polite"></div>
+      <div id="chatMessages" class="chat-messages"></div>
       <div id="chatMsg" class="chat-msg" style="padding:0 .75rem;"></div>
 
-      <form id="chatForm" class="chat-composer">
-        <div class="chat-composer-left">
-          <button type="button" class="chat-composer-btn" id="chatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
-          <input type="file" id="chatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
-        </div>
-        <div class="chat-composer-center">
-          <div class="chat-composer-input-wrap">
-            <textarea id="chatText" class="chat-composer-input" placeholder="Message Petal-PH Admin..." autocomplete="off" rows="1" data-maxrows="5"></textarea>
-          </div>
-        </div>
-        <div class="chat-composer-right">
-          <button type="button" class="chat-composer-btn" id="chatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
-          <button type="submit" class="chat-composer-send" id="chatSend" aria-label="Send" disabled>➤</button>
-        </div>
+      <form id="chatForm" class="chat-input">
+        <input type="file" id="chatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
+        <button type="button" class="chat-composer-btn" id="chatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
+        <textarea id="chatText" placeholder="Message Petal-PH Admin..." autocomplete="off" rows="1" data-maxrows="5"></textarea>
+        <button type="button" class="chat-composer-btn" id="chatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
+        <button type="submit" class="chat-composer-send" id="chatSend" aria-label="Send">➤</button>
       </form>
 
       <div id="voiceRecorder" class="chat-voice-recorder hidden">
         <div class="chat-voice-status" id="voiceStatus">Recording&hellip;</div>
         <div class="chat-voice-timer" id="voiceTimer">0:00</div>
-        <div class="row" style="justify-content:center; gap:.5rem; margin-top:.25rem;">
-          <button type="button" class="btn btn-outline" id="voiceStop">Stop</button>
-          <button type="button" class="btn btn-outline" id="voiceCancel">Cancel</button>
-        </div>
+        <button type="button" class="chat-btn-danger" id="voiceStop">Stop</button>
+        <button type="button" class="chat-btn-outline" id="voiceCancel">Cancel</button>
       </div>
       <div id="voicePreview" class="chat-voice-preview hidden">
-        <audio id="voiceAudio" class="chat-voice-audio" controls></audio>
-        <div class="row" style="justify-content:center; gap:.5rem; margin-top:.25rem;">
-          <button type="button" class="btn btn-outline" id="voiceRetry">Re-record</button>
-          <button type="button" class="btn" id="voiceSend">Send</button>
+        <audio id="voiceAudio" controls></audio>
+        <div class="row" style="justify-content:flex-end; gap:.5rem; margin-top:.4rem;">
+          <button type="button" class="chat-btn-outline" id="voiceRetry">Re-record</button>
+          <button type="button" class="chat-btn" id="voiceSend">Send</button>
         </div>
       </div>
 
