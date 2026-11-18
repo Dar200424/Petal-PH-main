@@ -183,41 +183,47 @@ const PetalChatUI = (() => {
 
   async function render() {
     if (!cfg) return;
-    const raw = cfg.getMessages ? cfg.getMessages() : [];
-    const msgs = raw.filter(m => m.user_id === cfg.conversationUserId);
-    msgs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    st.msgs = msgs;
-
-    // load attachment urls for media messages
-    const todo = msgs.filter(m => (m.kind === 'image' || m.kind === 'voice') && m.attachment_path && !m.deleted_at && !st.urls[m.id]);
-    await Promise.all(todo.map(async (m) => {
-      try { st.urls[m.id] = await cfg.getAttachmentUrl(m.attachment_path); } catch (err) { st.urls[m.id] = null; }
-    }));
-
-    const groups = buildGroups(msgs);
-    const container = $('container');
-    const pinnedBar = $('pinnedBar');
     const headerName = $('headerName');
     if (headerName && cfg.other) headerName.textContent = nameOf(cfg.other) || 'Conversation';
+    try {
+      const raw = cfg.getMessages ? cfg.getMessages() : [];
+      const msgs = raw.filter(m => m.user_id === cfg.conversationUserId);
+      msgs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      st.msgs = msgs;
 
-    if (!msgs.length) {
-      container.innerHTML = '<div class="chat-empty">No messages yet. Start the conversation.</div>';
-      if (pinnedBar) pinnedBar.classList.add('hidden');
-      return;
+      // load attachment urls for media messages
+      const todo = msgs.filter(m => (m.kind === 'image' || m.kind === 'voice') && m.attachment_path && !m.deleted_at && !st.urls[m.id]);
+      await Promise.all(todo.map(async (m) => {
+        try { st.urls[m.id] = await cfg.getAttachmentUrl(m.attachment_path); } catch (err) { st.urls[m.id] = null; }
+      }));
+
+      const groups = buildGroups(msgs);
+      const container = $('container');
+      const pinnedBar = $('pinnedBar');
+
+      if (!msgs.length) {
+        container.innerHTML = '<div class="chat-empty">No messages yet. Start the conversation.</div>';
+        if (pinnedBar) pinnedBar.classList.add('hidden');
+        return;
+      }
+
+      // pinned bar (slim strip, up to 3)
+      const pinned = msgs.filter(m => m.pinned_at && !m.deleted_at).slice(0, 3);
+      if (pinnedBar) {
+        pinnedBar.innerHTML = pinned.map(m => {
+          const preview = m.deleted_at ? 'Message unsent' : (m.kind === 'image' ? '📷 Photo' : (m.kind === 'voice' ? '🎤 Voice message' : (m.body || '')));
+          return `<div class="chat-pinned-item" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}"><span class="chat-pinned-icon">📌</span>${e(preview)}</div>`;
+        }).join('');
+        pinnedBar.classList.toggle('hidden', pinned.length === 0);
+      }
+
+      container.innerHTML = groups.map(g => groupHtml(g, st.urls)).join('');
+      manageScroll();
+    } catch (err) {
+      const container = $('container');
+      if (container) container.innerHTML = '<div class="chat-empty error">Chat could not be loaded. Please refresh and try again.</div>';
+      console.error('Petal-PH: chat render failed', err);
     }
-
-    // pinned bar (slim strip, up to 3)
-    const pinned = msgs.filter(m => m.pinned_at && !m.deleted_at).slice(0, 3);
-    if (pinnedBar) {
-      pinnedBar.innerHTML = pinned.map(m => {
-        const preview = m.deleted_at ? 'Message unsent' : (m.kind === 'image' ? '📷 Photo' : (m.kind === 'voice' ? '🎤 Voice message' : (m.body || '')));
-        return `<div class="chat-pinned-item" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}"><span class="chat-pinned-icon">📌</span>${e(preview)}</div>`;
-      }).join('');
-      pinnedBar.classList.toggle('hidden', pinned.length === 0);
-    }
-
-    container.innerHTML = groups.map(g => groupHtml(g, st.urls)).join('');
-    manageScroll();
   }
 
   /* ---------- scroll / new-messages button ---------- */
