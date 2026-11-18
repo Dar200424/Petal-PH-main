@@ -38,9 +38,9 @@
     <section class="chat-main">
       <div class="chat-head" id="chatHead">
         <img id="chatHeadAvatar" class="chat-head-avatar" src="logo.svg" alt="Petal-PH Admin">
-        <div>
-          <strong id="chatHeadName">Petal-PH Admin</strong>
-          <div id="chatHeadSub" class="muted">Customer support</div>
+        <div class="chat-head-identity">
+          <div id="chatHeadName" class="chat-head-name">Petal-PH</div>
+          <div id="chatHeadSub" class="chat-head-sub">Customer support</div>
         </div>
       </div>
       <div id="pinnedBar" class="chat-pinned-bar hidden"></div>
@@ -49,9 +49,9 @@
 
       <form id="chatForm" class="chat-input">
         <input type="file" id="chatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
-        <button type="button" class="chat-composer-btn" id="chatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
-        <textarea id="chatText" placeholder="Message Petal-PH Admin..." autocomplete="off" rows="1" data-maxrows="5"></textarea>
         <button type="button" class="chat-composer-btn" id="chatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
+        <button type="button" class="chat-composer-btn" id="chatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
+        <textarea id="chatText" placeholder="Message Petal-PH Admin..." autocomplete="off" rows="1"></textarea>
         <button type="submit" class="chat-composer-send" id="chatSend" aria-label="Send">➤</button>
       </form>
 
@@ -69,7 +69,7 @@
         </div>
       </div>
 
-      <button type="button" class="chat-new-msg-btn" id="newMsgBtn" aria-label="Go to newest messages">↓ New messages</button>
+      <button type="button" class="chat-new-msg-btn hidden" id="newMsgBtn" aria-label="Go to newest messages">↓ New messages</button>
     </section>
   </main>
 
@@ -84,9 +84,8 @@
   <!-- Message action cluster -->
   <div id="msgMenu" class="chat-msg-menu hidden">
     <div class="chat-msg-menu-items">
-      <button class="chat-msg-menu-item" id="menuReact">React</button>
-      <button class="chat-msg-menu-item" id="menuPin">Pin</button>
-      <button class="chat-msg-menu-item chat-btn-danger" id="menuUnsend">Unsend</button>
+      <button type="button" class="chat-msg-menu-item" id="menuPin">📌 Pin</button>
+      <button type="button" class="chat-msg-menu-item chat-btn-danger" id="menuUnsend">Unsend</button>
     </div>
   </div>
 
@@ -126,13 +125,14 @@
 
     const headName = document.getElementById('chatHeadName');
     const headSub = document.getElementById('chatHeadSub');
-    if (headName) headName.textContent = 'Petal-PH Admin';
+    if (headName) headName.textContent = 'Petal-PH';
     if (headSub) headSub.textContent = 'Customer support';
 
     PetalChatUI.init({
       me: user,
       meSender: 'user',
-      other: { nickname: 'Petal-PH Admin', avatar: 'logo.svg' },
+      other: { nickname: 'Petal-PH', avatar: 'logo.svg' },
+      subText: 'Customer support',
       conversationUserId: user.id,
       markRead: () => PetalApp.markRead(user.id, 'user'),
       getMessages: () => PetalApp.getMessages(),
@@ -147,6 +147,8 @@
         container: document.getElementById('chatMessages'),
         pinnedBar: document.getElementById('pinnedBar'),
         headerName: document.getElementById('chatHeadName'),
+        headerSub: document.getElementById('chatHeadSub'),
+        headerAvatar: document.getElementById('chatHeadAvatar'),
         form: document.getElementById('chatForm'),
         textarea: document.getElementById('chatText'),
         sendBtn: document.getElementById('chatSend'),
@@ -168,7 +170,6 @@
         msgMenu: document.getElementById('msgMenu'),
         msgPicker: document.getElementById('msgPicker'),
         msgPickerItems: document.getElementById('msgPickerItems'),
-        menuReact: document.getElementById('menuReact'),
         menuPin: document.getElementById('menuPin'),
         menuUnsend: document.getElementById('menuUnsend'),
         newMsgBtn: document.getElementById('newMsgBtn'),
@@ -176,6 +177,15 @@
         reactionPopoverItems: document.getElementById('reactionPopoverItems'),
       }
     });
+
+    setInterval(async () => {
+      try {
+        await PetalApp.loadOwn();
+        await PetalChatUI.refresh();
+      } catch (err) {
+        console.warn('Petal-PH: chat poll failed', err);
+      }
+    }, 10000);
     })();
   </script>
 </body>

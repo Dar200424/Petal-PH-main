@@ -6,15 +6,16 @@
 const PetalChatUI = (() => {
   const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
   const MAX_VOICE_SECONDS = 120;
-  const GROUP_GAP_MS = 2 * 60 * 1000;   // same sender within 2 min = one group
-  const DIVIDER_GAP_MS = 15 * 60 * 1000; // new time divider when gap > 15 min or day changes
+  const GROUP_GAP_MS = 2 * 60 * 1000;    // same sender within 2 min = one group
+  const DIVIDER_GAP_MS = 15 * 60 * 1000; // divider when gap > 15 min or day changes
   const DOUBLE_TAP_MS = 300;
+  const LONG_PRESS_MS = 450;
 
-  let cfg = null; // { me, meSender, other, conversationUserId, markRead, getMessages, sendText, sendImage, sendVoice, unsend, pin, react, getAttachmentUrl, elements: {...} }
+  let cfg = null;
   let st = {
     msgs: [],
     urls: {},
-    openMenuId: null,
+    openMoreId: null,
     openPickerId: null,
     openPopoverId: null,
     mediaRecorder: null,
@@ -24,12 +25,16 @@ const PetalChatUI = (() => {
     voiceStream: null,
     voiceBlob: null,
     longPressTimer: null,
-    longPressEl: null,
+    longPressRow: null,
     lastTapTime: 0,
     lastTapId: null,
     isAtBottom: true,
     currentAudioId: null,
     audioEl: new Audio(),
+    lastSig: '',
+    pendingRender: false,
+    markingRead: false,
+    totalSeen: 0,
   };
 
   const $ = (id) => (cfg && cfg.elements && cfg.elements[id]) ? cfg.elements[id] : document.getElementById(id);
@@ -38,9 +43,10 @@ const PetalChatUI = (() => {
   /* ---------- small helpers ---------- */
   function isOwn(m) { return m.sender === cfg.meSender; }
   function readCol() { return cfg.meSender === 'user' ? 'read_by_admin' : 'read_by_user'; }
+  function myReadCol() { return cfg.meSender === 'user' ? 'read_by_user' : 'read_by_admin'; }
   function nameOf(p) { return (p && p.nickname) || (p && p.email) || 'Customer'; }
   function initials(p) { return (nameOf(p) || '?').charAt(0).toUpperCase(); }
-  function avatarSrc(p) { return (p && p.avatar) ? e(p.avatar) : ''; }
+  function avatarSrc(p) { return (p && p.avatar) ? PetalApp.escapeHtml(p.avatar) : ''; }
 
   function fmtClock(iso) {
     const d = new Date(iso);
@@ -51,17 +57,6 @@ const PetalChatUI = (() => {
     const today = new Date().toDateString() === d.toDateString();
     if (today) return 'Today ' + d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
     return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
-  }
-  function relativeTime(iso) {
-    const d = new Date(iso);
-    const now = new Date();
-    const sec = Math.floor((now - d) / 1000);
-    if (sec < 60) return 'just now';
-    const min = Math.floor(sec / 60);
-    if (min < 60) return min + 'm';
-    const h = Math.floor(min / 60);
-    if (h < 24) return h + 'h';
-    return d.toLocaleDateString('en-PH', { weekday: 'short' });
   }
 
   /* ---------- grouping ---------- */
@@ -88,6 +83,7 @@ const PetalChatUI = (() => {
       g.msgs.forEach((m, i) => {
         m._pos = i === 0 ? 'first' : (i === g.msgs.length - 1 ? 'last' : 'mid');
         m._single = g.msgs.length === 1;
+        m._groupStart = i === 0;
       });
     });
     return groups;
@@ -102,9 +98,9 @@ const PetalChatUI = (() => {
     if (!r.counts || Object.keys(r.counts).length === 0) return '';
     const items = Object.entries(r.counts).map(([emoji, count]) => {
       const active = r.own === emoji ? ' active' : '';
-      return `<span class="chat-reaction-pill-item" data-emoji="${e(emoji)}" title="${e(emoji)} ${count}">${e(emoji)}${count > 1 ? '<span class="chat-reaction-count">' + count + '</span>' : ''}</span>`;
+      return `<span class="chat-reaction-pill-item${active}" data-emoji="${e(emoji)}" title="${e(emoji)} ${count}">${e(emoji)}${count > 1 ? '<span class="chat-reaction-count">' + count + '</span>' : ''}</span>`;
     }).join('');
-    return `<div class="chat-reaction-pill" data-msgid="${e(m.id)}">${items}</div>`;
+    return `<div class="chat-reaction-pill" data-msgid="${e(m.id)}" role="button" tabindex="0">${items}</div>`;
   }
 
   /* ---------- message html ---------- */
@@ -112,12 +108,10 @@ const PetalChatUI = (() => {
     if (!isOwn(m) || !m._lastOwn) return '';
     const rc = readCol();
     const seen = m[rc] === true || m[rc] === 1;
-    const status = seen ? 'Seen' : 'Sent';
-    return `<div class="chat-status">${e(status)}</div>`;
+    return `<div class="chat-status">${e(seen ? 'Seen' : 'Sent')}</div>`;
   }
 
   function attachHtml(m, urls) {
-    const e = PetalApp.escapeHtml;
     if (m.deleted_at) return '';
     if (m.kind === 'image') {
       const url = urls[m.id] || '';
@@ -128,7 +122,7 @@ const PetalChatUI = (() => {
       const dur = m.duration_seconds ? Math.floor(m.duration_seconds) : 0;
       return `
         <div class="chat-voice-player" data-msgid="${e(m.id)}" data-src="${e(url)}" data-dur="${dur}">
-          <button class="chat-voice-play" aria-label="Play voice message">▶</button>
+          <button class="chat-voice-play" aria-label="Play voice message" type="button">▶</button>
           <div class="chat-voice-progress"><div class="chat-voice-progress-fill" style="width:0%"></div></div>
           <span class="chat-voice-dur">${dur ? dur + 's' : '0s'}</span>
         </div>`;
@@ -137,114 +131,212 @@ const PetalChatUI = (() => {
   }
 
   function bodyHtml(m, urls) {
-    if (m.deleted_at) {
-      const who = isOwn(m) ? 'You unsent a message' : (nameOf(cfg.other) + ' unsent a message');
-      return `<span class="chat-unsent">${e(who)}</span>`;
-    }
+    if (m.deleted_at) return `<span class="chat-unsent">This message was unsent</span>`;
     if (m.kind === 'text') return `<div class="chat-body">${e(m.body)}</div>`;
     return attachHtml(m, urls);
+  }
+
+  function avatarHtml() {
+    const src = avatarSrc(cfg.other);
+    const letter = e(initials(cfg.other));
+    if (!src) return `<span class="chat-avatar chat-avatar-fallback-on"><span class="chat-avatar-initial">${letter}</span></span>`;
+    return `<span class="chat-avatar"><span class="chat-avatar-initial">${letter}</span><img src="${src}" alt="" onerror="this.parentNode.classList.add('chat-avatar-fallback-on');this.style.display='none'"></span>`;
+  }
+
+  function actionsHtml(m) {
+    if (m.deleted_at) return '';
+    return `<div class="chat-actions" data-msgid="${e(m.id)}">
+      <button type="button" class="chat-act-btn" data-act="react" aria-label="React" title="React">🙂</button>
+      <button type="button" class="chat-act-btn" data-act="more" aria-label="More options" title="More">⋯</button>
+    </div>`;
   }
 
   function bubbleWrapHtml(m, urls) {
     const own = isOwn(m);
     const pinned = !!m.pinned_at && !m.deleted_at;
-    const time = fmtClock(m.created_at);
-    const pinnedBadge = pinned ? '<span class="chat-pinned-badge">Pinned</span>' : '';
+    const pinMark = pinned ? '<span class="chat-pin-inline" aria-label="Pinned message">📌</span>' : '';
     const reactions = reactionPillHtml(m);
-    const status = statusHtml(m);
     const singleCls = m._single ? ' chat-pos-single' : (' chat-pos-' + m._pos);
-    const imgCls = m.kind === 'image' ? ' chat-bubble-img' : '';
-    const side = own ? 'own' : 'other';
+    const imgCls = m.kind === 'image' && !m.deleted_at ? ' chat-bubble-img' : '';
+    const wrapCls = 'chat-bubble-wrap' + singleCls + (reactions ? ' has-reactions' : '');
     return `
-      <div class="chat-msg-row ${own ? 'chat-mine' : 'chat-them'}" data-side="${side}">
-        <div class="chat-bubble-wrap${singleCls}" data-msgid="${e(m.id)}">
-          ${pinnedBadge}
-          <div class="chat-bubble ${own ? 'chat-bubble-own' : 'chat-bubble-recv'}${singleCls}${imgCls}" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}">
-            ${bodyHtml(m, urls)}
+        <div class="${wrapCls}" data-msgid="${e(m.id)}">
+          <div class="chat-bubble ${own ? 'chat-bubble-own' : 'chat-bubble-recv'}${imgCls}" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}">
+            ${pinMark}${bodyHtml(m, urls)}
           </div>
           ${reactions}
-          ${status}
-        </div>
+          ${statusHtml(m)}
+        </div>`;
+  }
+
+  function rowHtml(m, urls) {
+    const own = isOwn(m);
+    const showAvatar = !own && (m._single || m._pos === 'last');
+    const actions = actionsHtml(m);
+    const gapCls = m._groupStart ? ' chat-group-start' : '';
+    return `
+      <div class="chat-msg-row ${own ? 'chat-mine' : 'chat-them'}${gapCls}" data-side="${own ? 'own' : 'other'}" data-msgid="${e(m.id)}">
+        ${own ? '' : (showAvatar ? avatarHtml() : '<span class="chat-avatar-spacer"></span>')}
+        ${own ? actions : ''}
+        ${bubbleWrapHtml(m, urls)}
+        ${own ? '' : actions}
       </div>`;
   }
 
   function groupHtml(g, urls) {
     let out = '';
-    if (g.divider) {
-      out += `<div class="chat-divider"><span>${e(fmtDivider(g.msgs[0].created_at))}</span></div>`;
-    }
-    // avatar on last message of received groups
-    g.msgs.forEach((m, i) => {
-      const last = i === g.msgs.length - 1;
-      const showAvatar = !isOwn(m) && last;
-      const avatar = showAvatar ? `<div class="chat-avatar chat-avatar-msg" data-userid="${e(m.user_id)}"><img src="${avatarSrc(cfg.other)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span>${e(initials(cfg.other))}</span></div>` : (!isOwn(m) ? '<div class="chat-avatar-spacer"></div>' : '');
-      out += `<div class="chat-msg-line${showAvatar ? ' chat-has-avatar' : ''}">${avatar}${bubbleWrapHtml(m, urls)}</div>`;
-    });
+    if (g.divider) out += `<div class="chat-divider">${e(fmtDivider(g.msgs[0].created_at))}</div>`;
+    out += g.msgs.map(m => rowHtml(m, urls)).join('');
     return out;
   }
 
-  async function render() {
+  /* ---------- header / empty state ---------- */
+  function updateHeader() {
+    const hasConv = !!cfg.conversationUserId;
+    const main = $('main');
+    const empty = $('emptyState');
+    if (main) main.classList.toggle('chat-idle', !hasConv && !!empty);
+    if (empty) empty.classList.toggle('hidden', hasConv);
+    if (!hasConv) return;
+
+    const nameEl = $('headerName');
+    if (nameEl) nameEl.textContent = nameOf(cfg.other);
+    const subEl = $('headerSub');
+    if (subEl) subEl.textContent = cfg.subText || 'Petal-PH customer';
+    const img = $('headerAvatar');
+    const fb = $('headerAvatarFallback');
+    const src = avatarSrc(cfg.other);
+    if (img) {
+      if (src) { img.src = src; img.classList.remove('hidden'); }
+      else { img.classList.add('hidden'); }
+    }
+    if (fb) {
+      if (src) { fb.classList.add('hidden'); }
+      else { fb.textContent = initials(cfg.other); fb.classList.remove('hidden'); }
+    }
+  }
+
+  /* ---------- signature: skip DOM work when nothing changed ---------- */
+  function signature(msgs) {
+    return msgs.map(m => [
+      m.id, m.body, m.kind, m.attachment_path || '', m.duration_seconds || 0,
+      m.deleted_at ? 1 : 0, m.pinned_at ? 1 : 0,
+      m.read_by_user ? 1 : 0, m.read_by_admin ? 1 : 0,
+      st.urls[m.id] ? 1 : 0,
+      JSON.stringify(reactionsOf(m.id).counts || {}) + '/' + (reactionsOf(m.id).own || '')
+    ].join('|')).join('~') + '@' + (cfg.conversationUserId || '');
+  }
+
+  function isBusy() {
+    const recording = st.mediaRecorder && st.mediaRecorder.state === 'recording';
+    const playing = st.audioEl && !st.audioEl.paused && !st.audioEl.ended;
+    return recording || playing;
+  }
+
+  async function loadUrls(msgs) {
+    const todo = msgs.filter(m => (m.kind === 'image' || m.kind === 'voice') && m.attachment_path && !m.deleted_at && !(m.id in st.urls));
+    await Promise.all(todo.map(async (m) => {
+      try {
+        const url = await cfg.getAttachmentUrl(m.attachment_path);
+        st.urls[m.id] = url || '';
+      } catch (err) {
+        st.urls[m.id] = '';
+      }
+    }));
+  }
+
+  function renderPinned(msgs) {
+    const pinnedBar = $('pinnedBar');
+    if (!pinnedBar) return;
+    const pinned = msgs.filter(m => m.pinned_at && !m.deleted_at).slice(0, 3);
+    pinnedBar.innerHTML = pinned.map(m => {
+      const preview = m.kind === 'image' ? '📷 Photo' : (m.kind === 'voice' ? '🎤 Voice message' : (m.body || ''));
+      return `<div class="chat-pinned-item" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}"><span class="chat-pinned-icon">📌</span>${e(preview)}</div>`;
+    }).join('');
+    pinnedBar.classList.toggle('hidden', pinned.length === 0);
+  }
+
+  function markIncomingRead(msgs) {
+    if (!cfg.markRead) return;
+    const col = myReadCol();
+    const unread = msgs.some(m => !isOwn(m) && !m.deleted_at && !m[col]);
+    if (!unread || st.markingRead) return;
+    st.markingRead = true;
+    Promise.resolve(cfg.markRead())
+      .catch(() => {})
+      .then(() => { st.markingRead = false; });
+  }
+
+  function renderMessages(msgs) {
+    const container = $('container');
+    if (!container) return;
+    if (!msgs.length) {
+      container.innerHTML = '<div class="chat-empty">No messages yet. Start the conversation.</div>';
+      return;
+    }
+    const prevTop = container.scrollTop;
+    const wasAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 60;
+    container.innerHTML = buildGroups(msgs).map(g => groupHtml(g, st.urls)).join('');
+    if (!wasAtBottom) container.scrollTop = prevTop;
+  }
+
+  async function render(force) {
     if (!cfg) return;
-    const headerName = $('headerName');
-    if (headerName && cfg.other) headerName.textContent = nameOf(cfg.other) || 'Conversation';
+    if (!cfg.conversationUserId) {
+      st.msgs = [];
+      st.lastSig = '';
+      const container = $('container');
+      if (container) container.innerHTML = '';
+      const pinnedBar = $('pinnedBar');
+      if (pinnedBar) pinnedBar.classList.add('hidden');
+      updateHeader();
+      return;
+    }
+
     try {
       const raw = cfg.getMessages ? cfg.getMessages() : [];
       const msgs = raw.filter(m => m.user_id === cfg.conversationUserId);
       msgs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      msgs.forEach((m) => { m._lastOwn = false; });
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (isOwn(msgs[i]) && !msgs[i].deleted_at) { msgs[i]._lastOwn = true; break; }
+      }
       st.msgs = msgs;
 
-      // Messenger-style: show "Sent"/"Seen" only under the LAST own message
-      let lastOwnIdx = -1;
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (isOwn(msgs[i])) { lastOwnIdx = i; break; }
-      }
-      if (lastOwnIdx >= 0) msgs[lastOwnIdx]._lastOwn = true;
+      await loadUrls(msgs);
+      updateHeader();
+      renderPinned(msgs);
+      markIncomingRead(msgs);
 
-      // load attachment urls for media messages
-      const todo = msgs.filter(m => (m.kind === 'image' || m.kind === 'voice') && m.attachment_path && !m.deleted_at && !st.urls[m.id]);
-      await Promise.all(todo.map(async (m) => {
-        try { st.urls[m.id] = await cfg.getAttachmentUrl(m.attachment_path); } catch (err) { st.urls[m.id] = null; }
-      }));
-
-      const groups = buildGroups(msgs);
-      const container = $('container');
-      const pinnedBar = $('pinnedBar');
-
-      if (!msgs.length) {
-        container.innerHTML = '<div class="chat-empty">No messages yet. Start the conversation.</div>';
-        if (pinnedBar) pinnedBar.classList.add('hidden');
-        return;
-      }
-
-      // pinned bar (slim strip, up to 3)
-      const pinned = msgs.filter(m => m.pinned_at && !m.deleted_at).slice(0, 3);
-      if (pinnedBar) {
-        pinnedBar.innerHTML = pinned.map(m => {
-          const preview = m.deleted_at ? 'Message unsent' : (m.kind === 'image' ? '📷 Photo' : (m.kind === 'voice' ? '🎤 Voice message' : (m.body || '')));
-          return `<div class="chat-pinned-item" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}"><span class="chat-pinned-icon">📌</span>${e(preview)}</div>`;
-        }).join('');
-        pinnedBar.classList.toggle('hidden', pinned.length === 0);
-      }
-
-      container.innerHTML = groups.map(g => groupHtml(g, st.urls)).join('');
-      manageScroll();
+      const sig = signature(msgs);
+      if (!force && sig === st.lastSig) { manageScroll(); return; }
+      if (!force && isBusy()) { st.pendingRender = true; return; }
+      st.lastSig = sig;
+      renderMessages(msgs);
+      manageScroll(msgs.length);
+      restoreOverlays();
     } catch (err) {
       const container = $('container');
-      if (container) container.innerHTML = '<div class="chat-empty error">Chat could not be loaded. Please refresh and try again.</div>';
+      if (container) container.innerHTML = '<div class="chat-empty">Chat could not be loaded. Please refresh and try again.</div>';
       console.error('Petal-PH: chat render failed', err);
     }
   }
 
   /* ---------- scroll / new-messages button ---------- */
-  function manageScroll() {
+  function manageScroll(count) {
     const container = $('container');
     if (!container) return;
     const nearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 60;
     st.isAtBottom = nearBottom;
+    const firstLoad = typeof count === 'number' && st.totalSeen === 0 && count > 0;
     const btn = $('newMsgBtn');
-    if (!nearBottom && btn) btn.classList.remove('hidden');
-    if (nearBottom && btn) btn.classList.add('hidden');
-    if (nearBottom) scrollToBottom(false);
+    if (btn) {
+      const grew = typeof count === 'number' && count > st.totalSeen;
+      if (nearBottom || !grew) btn.classList.add('hidden');
+      else btn.classList.remove('hidden');
+    }
+    if (typeof count === 'number') st.totalSeen = count;
+    if (nearBottom || firstLoad) scrollToBottom(firstLoad);
   }
 
   function scrollToBottom(immediate) {
@@ -263,39 +355,41 @@ const PetalChatUI = (() => {
       st.isAtBottom = nearBottom;
       if (btn) btn.classList.toggle('hidden', nearBottom);
     });
-    if (btn) {
-      btn.addEventListener('click', () => { scrollToBottom(false); btn.classList.add('hidden'); });
-    }
+    if (btn) btn.addEventListener('click', () => { scrollToBottom(false); btn.classList.add('hidden'); });
   }
 
-  /* ---------- public render entry ---------- */
+  /* ---------- public entry ---------- */
   function init(options) {
     cfg = options;
-    bindContainer();
     bindComposer();
     bindVoice();
     bindVoicePlayer();
     bindOverlays();
-    renderOnce();
+    setupScrollTracking();
+    st.audioEl.addEventListener('ended', () => {
+      if (st.pendingRender) { st.pendingRender = false; render(true); }
+    });
+    render(true);
   }
-
-  function renderOnce() { render(); setupScrollTracking(); }
 
   function switchConversation(other, conversationUserId) {
     if (!cfg) return;
     cfg.other = other || cfg.other;
     cfg.conversationUserId = conversationUserId;
-    const headerName = $('headerName');
-    if (headerName) headerName.textContent = nameOf(cfg.other) || 'Conversation';
-    renderOnce();
+    st.urls = {};
+    st.lastSig = '';
+    st.totalSeen = 0;
+    closeMenus();
+    render(true);
     scrollToBottom(true);
   }
 
-  /* ---------- action cluster (hover desktop / long-press mobile) ---------- */
-  let clusterHideTimer = null;
-
+  /* ---------- overlays ---------- */
+  function rowsWithActions() {
+    return document.querySelectorAll('.chat-msg-row.chat-actions-open');
+  }
   function closeMenus() {
-    st.openMenuId = null;
+    st.openMoreId = null;
     st.openPickerId = null;
     st.openPopoverId = null;
     const menu = $('msgMenu');
@@ -304,69 +398,105 @@ const PetalChatUI = (() => {
     if (menu) menu.classList.add('hidden');
     if (picker) picker.classList.add('hidden');
     if (popover) popover.classList.add('hidden');
+    rowsWithActions().forEach(r => r.classList.remove('chat-actions-open'));
     clearLongPress();
-    if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; }
   }
 
   function clearLongPress() {
     if (st.longPressTimer) { clearTimeout(st.longPressTimer); st.longPressTimer = null; }
-    st.longPressEl = null;
+    st.longPressRow = null;
   }
 
-  function showCluster(msgId) {
-    if (st.openMenuId === msgId) return;
+  function rowOf(msgId) {
+    return document.querySelector('.chat-msg-row[data-msgid="' + e(msgId) + '"]');
+  }
+
+  function openActions(msgId) {
     closeMenus();
-    st.openMenuId = msgId;
+    const row = rowOf(msgId);
+    if (row) row.classList.add('chat-actions-open');
+  }
+
+  function openMoreMenu(msgId, anchorEl) {
+    closeMenus();
+    const m = st.msgs.find(x => x.id === msgId);
+    if (!m) return;
+    st.openMoreId = msgId;
     const menu = $('msgMenu');
     if (!menu) return;
     menu.dataset.msgid = msgId;
-    const m = st.msgs.find(x => x.id === msgId);
     const pinBtn = $('menuPin');
-    if (pinBtn && m) pinBtn.textContent = m.pinned_at ? 'Unpin' : 'Pin';
+    if (pinBtn) pinBtn.textContent = m.pinned_at ? '📌 Unpin' : '📌 Pin';
     const unsendBtn = $('menuUnsend');
-    if (unsendBtn && m) unsendBtn.style.display = isOwn(m) ? 'block' : 'none';
-    const bubble = document.querySelector('[data-msgid="' + e(msgId) + '"] .chat-bubble');
-    if (bubble) {
-      const rect = bubble.getBoundingClientRect();
-      menu.style.left = (rect.right + 8) + 'px';
-      menu.style.top = (rect.top - 6) + 'px';
-      menu.classList.remove('hidden');
+    if (unsendBtn) unsendBtn.style.display = isOwn(m) ? 'flex' : 'none';
+    menu.classList.remove('hidden');
+    const rect = anchorEl.getBoundingClientRect();
+    const mw = menu.offsetWidth || 150;
+    let left = rect.right + 8;
+    if (left + mw > window.innerWidth - 8) left = Math.max(8, rect.left - mw - 8);
+    menu.style.left = left + 'px';
+    menu.style.top = Math.max(8, rect.top) + 'px';
+    const row = rowOf(msgId);
+    if (row) row.classList.add('chat-actions-open');
+  }
+
+  function openPicker(msgId, anchorEl) {
+    closeMenus();
+    st.openPickerId = msgId;
+    const picker = $('msgPicker');
+    const items = $('msgPickerItems');
+    if (!picker || !items) return;
+    items.innerHTML = EMOJIS.map(emoji => `<button type="button" class="chat-emoji-pick" data-emoji="${e(emoji)}">${e(emoji)}</button>`).join('');
+    picker.classList.remove('hidden');
+    const rect = anchorEl.getBoundingClientRect();
+    const pw = picker.offsetWidth || 240;
+    const ph = picker.offsetHeight || 44;
+    picker.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - pw - 8)) + 'px';
+    picker.style.top = Math.max(8, rect.top - ph - 8) + 'px';
+    const row = rowOf(msgId);
+    if (row) row.classList.add('chat-actions-open');
+  }
+
+  function openReactionPopover(msgId, anchorEl) {
+    closeMenus();
+    st.openPopoverId = msgId;
+    const r = reactionsOf(msgId);
+    const popover = $('reactionPopover');
+    const items = $('reactionPopoverItems');
+    if (!popover || !items) return;
+    let html = '';
+    Object.entries(r.counts || {}).forEach(([emoji, count]) => {
+      const active = r.own === emoji ? ' chat-selected' : '';
+      html += `<div class="chat-popover-entry${active}" data-emoji="${e(emoji)}">${e(emoji)} <span class="chat-popover-count">${count}</span>${r.own === emoji ? ' (you)' : ''}</div>`;
+    });
+    items.innerHTML = html || '<div class="chat-popover-empty">No reactions yet.</div>';
+    popover.classList.remove('hidden');
+    const rect = anchorEl.getBoundingClientRect();
+    const pw = popover.offsetWidth || 140;
+    popover.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - pw - 8)) + 'px';
+    popover.style.top = Math.max(8, rect.top - popover.offsetHeight - 8) + 'px';
+    const row = rowOf(msgId);
+    if (row) row.classList.add('chat-actions-open');
+  }
+
+  function restoreOverlays() {
+    if (st.openMoreId) {
+      const row = rowOf(st.openMoreId);
+      const anchor = row && row.querySelector('.chat-act-btn[data-act="more"]');
+      if (anchor) openMoreMenu(st.openMoreId, anchor); else closeMenus();
+      return;
     }
-  }
-
-  function hideClusterDelayed() {
-    if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; }
-    clusterHideTimer = setTimeout(() => {
-      const menu = $('msgMenu');
-      if (menu && !menu.matches(':hover')) { menu.classList.add('hidden'); st.openMenuId = null; }
-      clusterHideTimer = null;
-    }, 120);
-  }
-
-  function openPicker(msgId, anchorEl) {
-    closeMenus();
-    st.openPickerId = msgId;
-    const picker = $('msgPicker');
-    const items = $('msgPickerItems');
-    if (!picker || !items) return;
-    items.innerHTML = EMOJIS.map(emoji => `<button class="chat-emoji-pick" data-emoji="${e(emoji)}">${e(emoji)}</button>`).join('');
-    const rect = anchorEl.getBoundingClientRect();
-    picker.style.left = Math.max(8, rect.left) + 'px';
-    picker.style.top = (rect.top - 42) + 'px';
-    picker.classList.remove('hidden');
-  }
-
-  function openPicker(msgId, anchorEl) {
-    closeMenus();
-    st.openPickerId = msgId;
-    const picker = $('msgPicker');
-    const items = $('msgPickerItems');
-    if (!picker || !items) return;
-    items.innerHTML = EMOJIS.map(emoji => `<button class="chat-emoji-pick" data-emoji="${e(emoji)}">${e(emoji)}</button>`).join('');
-    const rect = anchorEl.getBoundingClientRect();
-    picker.style.left = Math.max(8, rect.left) + 'px';
-    picker.style.top = (rect.top - 42) + 'px';
-    picker.classList.remove('hidden');
+    if (st.openPickerId) {
+      const row = rowOf(st.openPickerId);
+      const anchor = row && row.querySelector('.chat-bubble');
+      if (anchor) openPicker(st.openPickerId, anchor); else closeMenus();
+      return;
+    }
+    if (st.openPopoverId) {
+      const row = rowOf(st.openPopoverId);
+      const anchor = row && row.querySelector('.chat-reaction-pill');
+      if (anchor) openReactionPopover(st.openPopoverId, anchor); else closeMenus();
+    }
   }
 
   async function doReact(msgId, emoji) {
@@ -381,6 +511,8 @@ const PetalChatUI = (() => {
     if (!confirm('Unsend this message? It will be removed for everyone.')) return;
     const res = await cfg.unsend(msgId);
     if (!res.ok) { showMsg(res.message || 'Could not unsend message.', true); return; }
+    st.urls = {};
+    st.lastSig = '';
     await refresh();
   }
 
@@ -391,29 +523,6 @@ const PetalChatUI = (() => {
     const res = await cfg.pin(msgId, !m.pinned_at);
     if (!res.ok) { showMsg(res.message || 'Could not ' + (m.pinned_at ? 'unpin' : 'pin') + ' message.', true); return; }
     await refresh();
-  }
-
-  function openReactionPopover(msgId, anchorEl) {
-    closeMenus();
-    st.openPopoverId = msgId;
-    const r = reactionsOf(msgId);
-    const entries = Object.entries(r.counts || {}).flatMap(([emoji, count]) => {
-      return Array(count).fill(emoji);
-    });
-    // build who-reacted: we don't have names per reaction in cache; show emoji + count
-    const popover = $('reactionPopover');
-    const items = $('reactionPopoverItems');
-    if (!popover || !items) return;
-    let html = '';
-    Object.entries(r.counts || {}).forEach(([emoji, count]) => {
-      const active = r.own === emoji ? ' chat-selected' : '';
-      html += `<div class="chat-popover-entry${active}" data-emoji="${e(emoji)}">${e(emoji)} <span class="chat-popover-count">${count}</span>${r.own === emoji ? ' (you)' : ''}</div>`;
-    });
-    items.innerHTML = html || '<div class="chat-popover-empty">No reactions yet.</div>';
-    const rect = anchorEl.getBoundingClientRect();
-    popover.style.left = Math.max(8, rect.left) + 'px';
-    popover.style.top = (rect.top - popover.offsetHeight - 8) + 'px';
-    popover.classList.remove('hidden');
   }
 
   /* ---------- voice ---------- */
@@ -444,7 +553,7 @@ const PetalChatUI = (() => {
       if (!MediaRecorder.isTypeSupported(mime)) { showMsg('Voice recording is not supported by this browser.', true); return; }
       st.mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
       st.audioChunks = [];
-      st.mediaRecorder.ondataavailable = e => { if (e.data.size) st.audioChunks.push(e.data); };
+      st.mediaRecorder.ondataavailable = ev => { if (ev.data.size) st.audioChunks.push(ev.data); };
       st.mediaRecorder.onstop = () => {
         const blob = new Blob(st.audioChunks, { type: mime });
         if (st.voiceTimerId) { clearInterval(st.voiceTimerId); st.voiceTimerId = null; }
@@ -455,6 +564,7 @@ const PetalChatUI = (() => {
         st.voiceBlob = blob;
         const preview = $('voicePreview');
         if (preview) preview.classList.remove('hidden');
+        if (st.pendingRender) { st.pendingRender = false; render(true); }
       };
       st.mediaRecorder.start(1000);
       st.voiceSeconds = 0;
@@ -511,13 +621,11 @@ const PetalChatUI = (() => {
       const audio = $('voiceAudio');
       if (audio) audio.src = '';
       if (!res.ok) { showMsg(res.message || 'Could not send voice message.', true); return; }
-      const textarea = $('textarea');
-      if (textarea) textarea.value = '';
       await refresh();
     });
   }
 
-  /* ---------- voice player (custom controls) ---------- */
+  /* ---------- voice player ---------- */
   function bindVoicePlayer() {
     const container = $('container');
     if (!container) return;
@@ -536,8 +644,12 @@ const PetalChatUI = (() => {
       st.currentAudioId = msgId;
       st.audioEl.src = src;
       btn.textContent = '⏸';
-      try { await st.audioEl.play(); } catch (err) { /* blocked by browser */ }
+      try { await st.audioEl.play(); } catch (err) { btn.textContent = '▶'; }
       st.audioEl.onended = () => { btn.textContent = '▶'; };
+      st.audioEl.ontimeupdate = () => {
+        const fill = wrap.querySelector('.chat-voice-progress-fill');
+        if (fill && dur) fill.style.width = Math.min(100, (st.audioEl.currentTime / dur) * 100) + '%';
+      };
     });
   }
 
@@ -549,11 +661,10 @@ const PetalChatUI = (() => {
     const photoBtn = $('photoBtn');
     const photoInput = $('photoInput');
 
-    // auto-grow textarea
     if (textarea) {
       textarea.addEventListener('input', () => {
         textarea.style.height = 'auto';
-        textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px'; // ~5 lines
+        textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
         updateSendBtn();
       });
       textarea.addEventListener('keydown', (ev) => {
@@ -600,54 +711,63 @@ const PetalChatUI = (() => {
 
   /* ---------- overlays & delegation ---------- */
   function bindOverlays() {
-    // outside click closes menus/picker/popover
     document.addEventListener('click', (ev) => {
       const menu = $('msgMenu');
       const picker = $('msgPicker');
       const popover = $('reactionPopover');
-      const trig = ev.target.closest('.chat-bubble, [data-msgid], .chat-emoji-pick, .chat-popover-entry, .chat-reaction-pill-item');
-      if (!menu.contains(ev.target) && !picker.contains(ev.target) && !popover.contains(ev.target) && !trig) closeMenus();
+      const inOverlay = (menu && menu.contains(ev.target)) || (picker && picker.contains(ev.target)) || (popover && popover.contains(ev.target));
+
+      const act = ev.target.closest('.chat-act-btn');
+      if (act) {
+        const row = act.closest('.chat-msg-row');
+        if (row) {
+          if (act.dataset.act === 'react') {
+            const bubble = row.querySelector('.chat-bubble');
+            openPicker(row.dataset.msgid, bubble || act);
+          } else {
+            openMoreMenu(row.dataset.msgid, act);
+          }
+        }
+        ev.stopPropagation();
+        return;
+      }
+
+      if (inOverlay) return;
+
+      const trigger = ev.target.closest('.chat-act-btn, .chat-emoji-pick, .chat-popover-entry, .chat-reaction-pill, .chat-pinned-item');
+      if (!trigger) closeMenus();
     });
+
     document.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') closeMenus();
     });
 
-    // message menu buttons
-    const menuReact = $('menuReact');
-    if (menuReact) menuReact.addEventListener('click', () => {
-      const id = $('msgMenu').dataset.msgid;
-      const el = document.querySelector('[data-msgid="' + e(id) + '"] .chat-bubble');
-      openPicker(id, el);
-    });
     const menuPin = $('menuPin');
-    if (menuPin) menuPin.addEventListener('click', () => { doPin($('msgMenu').dataset.msgid); });
+    const menu = $('msgMenu');
+    if (menuPin && menu) menuPin.addEventListener('click', () => { doPin(menu.dataset.msgid); });
     const menuUnsend = $('menuUnsend');
-    if (menuUnsend) menuUnsend.addEventListener('click', () => { doUnsend($('msgMenu').dataset.msgid); });
+    if (menuUnsend && menu) menuUnsend.addEventListener('click', () => { doUnsend(menu.dataset.msgid); });
 
-    // emoji pick
     document.addEventListener('click', (ev) => {
       const pick = ev.target.closest('.chat-emoji-pick');
       if (!pick) return;
       doReact(st.openPickerId, pick.dataset.emoji);
     });
 
-    // reaction pill click -> popover
     document.addEventListener('click', (ev) => {
       const pill = ev.target.closest('.chat-reaction-pill');
       if (!pill) return;
       ev.stopPropagation();
       openReactionPopover(pill.dataset.msgid, pill);
     });
-    // popover entry click (remove own reaction)
+
     document.addEventListener('click', (ev) => {
       const entry = ev.target.closest('.chat-popover-entry');
       if (!entry) return;
       ev.stopPropagation();
-      const emoji = entry.dataset.emoji;
-      doReact(st.openPopoverId, emoji);
+      doReact(st.openPopoverId, entry.dataset.emoji);
     });
 
-    // pinned bar click -> scroll
     const pinnedBar = $('pinnedBar');
     if (pinnedBar) {
       pinnedBar.addEventListener('click', (ev) => {
@@ -658,7 +778,6 @@ const PetalChatUI = (() => {
       });
     }
 
-    // image click -> lightbox
     document.addEventListener('click', (ev) => {
       const img = ev.target.closest('.chat-img');
       if (!img) return;
@@ -680,22 +799,26 @@ const PetalChatUI = (() => {
       });
     });
 
-    // long press on bubble (mobile) -> action cluster
+    /* long-press (mobile) -> action cluster */
     document.addEventListener('touchstart', (ev) => {
+      if (ev.target.closest('.chat-voice-play, .chat-img, .chat-reaction-pill')) return;
       const bubble = ev.target.closest('.chat-bubble');
       if (!bubble) return;
-      st.longPressEl = bubble;
+      const row = bubble.closest('.chat-msg-row');
+      if (!row) return;
+      st.longPressRow = row;
       st.longPressTimer = setTimeout(() => {
-        const msgId = bubble.dataset.msgid;
-        openMenu(msgId);
-      }, 400);
+        openActions(row.dataset.msgid);
+      }, LONG_PRESS_MS);
     }, { passive: true });
     document.addEventListener('touchend', (ev) => {
       clearLongPress();
-      // double tap heart
+      if (ev.target.closest('.chat-voice-play, .chat-img, .chat-reaction-pill')) return;
       const bubble = ev.target.closest('.chat-bubble');
       if (!bubble) return;
-      const msgId = bubble.dataset.msgid;
+      const row = bubble.closest('.chat-msg-row');
+      if (!row || row.classList.contains('chat-actions-open')) return;
+      const msgId = row.dataset.msgid;
       const now = Date.now();
       if (st.lastTapId === msgId && now - st.lastTapTime <= DOUBLE_TAP_MS) {
         doReact(msgId, '❤️');
@@ -706,42 +829,18 @@ const PetalChatUI = (() => {
       }
     });
     document.addEventListener('touchmove', clearLongPress);
-    // desktop double click heart
+
+    /* desktop double-click = quick heart */
     document.addEventListener('dblclick', (ev) => {
+      if (ev.target.closest('.chat-voice-play, .chat-img, .chat-reaction-pill')) return;
       const bubble = ev.target.closest('.chat-bubble');
       if (!bubble) return;
-      doReact(bubble.dataset.msgid, '❤️');
+      const row = bubble.closest('.chat-msg-row');
+      if (row) doReact(row.dataset.msgid, '❤️');
     });
-
-    // hover cluster on desktop
-    document.addEventListener('mouseover', (ev) => {
-      const bubble = ev.target.closest('.chat-bubble');
-      if (!bubble) return;
-      const msgId = bubble.dataset.msgid;
-      if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; }
-      showCluster(msgId);
-    });
-    document.addEventListener('mouseout', (ev) => {
-      const bubble = ev.target.closest('.chat-bubble');
-      if (!bubble) return;
-      const menu = $('msgMenu');
-      if (menu && menu.matches(':hover')) return;
-      hideClusterDelayed();
-    });
-    const msgMenuEl = $('msgMenu');
-    if (msgMenuEl) {
-      msgMenuEl.addEventListener('mouseenter', () => { if (clusterHideTimer) { clearTimeout(clusterHideTimer); clusterHideTimer = null; } });
-      msgMenuEl.addEventListener('mouseleave', () => { hideClusterDelayed(); });
-    }
   }
 
-  /* ---------- message container (no click-to-open; cluster via hover/long-press) ---------- */
-  function bindContainer() {
-    const container = $('container');
-    if (!container) return;
-    // voice player custom controls handled in bindVoicePlayer via delegation on container
-  }
-
+  /* ---------- lightbox ---------- */
   let scrollYSaved = 0;
 
   function openImageModal(modal) {
@@ -767,12 +866,8 @@ const PetalChatUI = (() => {
     scrollYSaved = 0;
   }
 
-  function bindPinnedBar() {
-    // handled in bindOverlays via delegation
-  }
-
   function scrollToMsg(msgId) {
-    const el = document.querySelector('[data-msgid="' + e(msgId) + '"]');
+    const el = document.querySelector('.chat-msg-row[data-msgid="' + e(msgId) + '"]');
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); closeMenus(); }
   }
 
@@ -787,11 +882,12 @@ const PetalChatUI = (() => {
   return {
     init: init,
     switchConversation: switchConversation,
-    refresh: renderOnce,
+    refresh: function () { return render(false); },
     scrollToMsg: scrollToMsg,
     closeMenus: closeMenus,
     destroy: function () {
-      st.mediaRecorder && stopRecording();
+      if (st.mediaRecorder) stopRecording();
+      if (st.voiceTimerId) clearInterval(st.voiceTimerId);
       cfg = null;
     }
   };

@@ -189,10 +189,11 @@
           <aside class="conv-list" id="convList"></aside>
           <section class="chat-main">
             <div class="chat-head" id="adminChatHead">
-              <img id="adminChatHeadAvatar" class="chat-head-avatar" src="logo.svg" alt="Customer">
-              <div>
-                <strong id="adminChatHeadName">Select a conversation</strong>
-                <div id="adminChatHeadSub" class="muted">Choose a customer on the left</div>
+              <img id="adminChatHeadAvatar" class="chat-head-avatar hidden" src="logo.svg" alt="Customer">
+              <span id="adminChatHeadFallback" class="chat-head-avatar chat-head-avatar-fallback">C</span>
+              <div class="chat-head-identity">
+                <div id="adminChatHeadName" class="chat-head-name">Select a conversation</div>
+                <div id="adminChatHeadSub" class="chat-head-sub">Choose a customer on the left</div>
               </div>
             </div>
             <div id="adminPinnedBar" class="chat-pinned-bar hidden"></div>
@@ -201,9 +202,9 @@
 
             <form id="adminChatForm" class="chat-input">
               <input type="file" id="adminChatPhoto" accept="image/*" class="hidden" aria-label="Attach photo">
-              <button type="button" class="chat-composer-btn" id="adminChatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
-              <textarea id="adminChatText" placeholder="Write a reply..." autocomplete="off" rows="1" data-maxrows="5"></textarea>
               <button type="button" class="chat-composer-btn" id="adminChatMicBtn" title="Voice message" aria-label="Voice message">🎤</button>
+              <button type="button" class="chat-composer-btn" id="adminChatPhotoBtn" title="Attach photo" aria-label="Attach photo">📷</button>
+              <textarea id="adminChatText" placeholder="Write a reply..." autocomplete="off" rows="1"></textarea>
               <button type="submit" class="chat-composer-send" id="adminChatSend" aria-label="Send">➤</button>
             </form>
 
@@ -221,7 +222,12 @@
               </div>
             </div>
 
-            <button type="button" class="chat-new-msg-btn" id="adminNewMsgBtn" aria-label="Go to newest messages">↓ New messages</button>
+            <button type="button" class="chat-new-msg-btn hidden" id="adminNewMsgBtn" aria-label="Go to newest messages">↓ New messages</button>
+
+            <div class="chat-empty-state hidden" id="adminChatEmpty">
+              <img src="logo.svg" alt="Petal-PH">
+              <p>Select a conversation</p>
+            </div>
           </section>
         </div>
       </section>
@@ -237,9 +243,8 @@
   <!-- Message action cluster (admin messages) -->
   <div id="adminMsgMenu" class="chat-msg-menu hidden">
     <div class="chat-msg-menu-items">
-      <button class="chat-msg-menu-item" id="adminMenuReact">React</button>
-      <button class="chat-msg-menu-item" id="adminMenuPin">Pin</button>
-      <button class="chat-msg-menu-item chat-btn-danger" id="adminMenuUnsend">Unsend</button>
+      <button type="button" class="chat-msg-menu-item" id="adminMenuPin">📌 Pin</button>
+      <button type="button" class="chat-msg-menu-item chat-btn-danger" id="adminMenuUnsend">Unsend</button>
     </div>
   </div>
 
@@ -1333,14 +1338,14 @@
           : `<span class="avatar avatar-fallback">${(nickname || 'U').charAt(0).toUpperCase()}</span>`;
         const last = c.last ? (c.last.sender === 'admin' ? 'You: ' : '') + PetalApp.escapeHtml(c.preview || '') : 'No messages';
         return `
-        <button class="conv-item ${adminCurrentUserId === c.userId ? 'active' : ''}" onclick="adminOpenConversation(this.dataset.id)" data-id="${PetalApp.escapeHtml(c.userId)}">
+        <button class="conv-item ${adminCurrentUserId === c.userId ? 'active' : ''}${c.unread ? ' unread' : ''}" onclick="adminOpenConversation(this.dataset.id)" data-id="${PetalApp.escapeHtml(c.userId)}">
           ${avatar}
           <div class="conv-info">
             <div class="conv-name">${PetalApp.escapeHtml(nickname)}</div>
             <div class="conv-last">${last}</div>
           </div>
           <div class="conv-meta">${relativeTime(c.last ? c.last.created_at : new Date().toISOString())}</div>
-          ${c.unread ? `<span class="conv-badge">${c.unread}</span>` : ''}
+          ${c.unread ? '<span class="conv-dot" title="Unread messages"></span>' : ''}
         </button>`;
       }).join('') || '<p class="chart-empty" style="padding:1rem">No conversations yet. Customer messages will appear here.</p>';
     }
@@ -1371,7 +1376,12 @@
       elements: {
         container: document.getElementById('adminChatMessages'),
         pinnedBar: document.getElementById('adminPinnedBar'),
+        main: document.querySelector('.admin-chat .chat-main'),
+        emptyState: document.getElementById('adminChatEmpty'),
         headerName: document.getElementById('adminChatHeadName'),
+        headerSub: document.getElementById('adminChatHeadSub'),
+        headerAvatar: document.getElementById('adminChatHeadAvatar'),
+        headerAvatarFallback: document.getElementById('adminChatHeadFallback'),
         form: document.getElementById('adminChatForm'),
         textarea: document.getElementById('adminChatText'),
         sendBtn: document.getElementById('adminChatSend'),
@@ -1393,7 +1403,6 @@
         msgMenu: document.getElementById('adminMsgMenu'),
         msgPicker: document.getElementById('adminMsgPicker'),
         msgPickerItems: document.getElementById('adminMsgPickerItems'),
-        menuReact: document.getElementById('adminMenuReact'),
         menuPin: document.getElementById('adminMenuPin'),
         menuUnsend: document.getElementById('adminMenuUnsend'),
         newMsgBtn: document.getElementById('adminNewMsgBtn'),
