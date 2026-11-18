@@ -568,3 +568,87 @@ th { background: linear-gradient(180deg, #fff, var(--accent-soft)); }
   .chat-bubble-wrap { max-width: 88%; }
   .chat-voice-player { width: 140px; }
 }
+
+/* ============================================================
+ * Messenger alignment overrides
+ * Appended AFTER all existing rules so it wins by specificity
+ * on the shared chat UI (admin.html + messages.html).
+ * Existing rules above are NOT modified or reordered.
+ * ============================================================ */
+
+/* 1. Row alignment: own (mine) on the RIGHT, received (them) on the LEFT */
+.chat-msg-row { display: flex; margin: .25rem 0; }
+.chat-msg-row.chat-mine { justify-content: flex-end; }
+.chat-msg-row.chat-them { justify-content: flex-start; }
+
+/* 2. Bubble styling */
+.chat-bubble-wrap { position: relative; display: flex; flex-direction: column; max-width: 72%; }
+.chat-mine .chat-bubble-wrap { align-self: flex-end; }
+.chat-them .chat-bubble-wrap { align-self: flex-start; }
+.chat-bubble {
+  width: fit-content;
+  max-width: min(70%, 480px);
+  padding: 8px 12px;
+  border-radius: 18px;
+  font-size: .95rem;
+  line-height: 1.4;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  position: relative;
+  box-shadow: none;
+  border: none;
+}
+.chat-bubble-own {
+  background: linear-gradient(135deg, #ff8fa3, #ff5f8a);
+  color: #fff;
+  border-bottom-right-radius: 18px;
+}
+.chat-bubble-own .chat-body { color: #fff; }
+.chat-bubble-recv {
+  background: #eef0f2;
+  color: #1d1d1f;
+  border-bottom-left-radius: 18px;
+}
+.chat-bubble-recv .chat-body { color: #1d1d1f; }
+.chat-body { white-space: pre-wrap; }
+
+/* 2b. Bubble tail rounding for consecutive messages */
+.chat-pos-single { border-radius: 18px !important; }
+.chat-pos-first { border-radius: 18px 18px 6px 18px !important; }
+.chat-pos-last { border-radius: 6px 6px 18px 18px !important; }
+.chat-pos-mid { border-radius: 6px !important; }
+.chat-mine .chat-bubble-own { border-top-right-radius: 6px !important; border-bottom-right-radius: 18px !important; }
+.chat-mine .chat-bubble-own.chat-pos-single { border-radius: 18px !important; }
+.chat-mine .chat-bubble-own.chat-pos-first { border-radius: 18px 18px 6px 18px !important; }
+.chat-mine .chat-bubble-own.chat-pos-last { border-radius: 6px 6px 18px 18px !important; }
+.chat-them .chat-bubble-recv { border-top-left-radius: 6px !important; border-bottom-left-radius: 18px !important; }
+.chat-them .chat-bubble-recv.chat-pos-single { border-radius: 18px !important; }
+.chat-them .chat-bubble-recv.chat-pos-first { border-radius: 18px 18px 18px 6px !important; }
+.chat-them .chat-bubble-recv.chat-pos-last { border-radius: 6px 6px 18px 18px !important; }
+
+/* 3. Image messages: no pink frame, no padding, no background — just the rounded image */
+.chat-bubble.chat-bubble-img {
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.chat-bubble.chat-bubble-img .chat-img {
+  width: 100%;
+  max-width: 320px;
+  max-height: 360px;
+  object-fit: cover;
+  border-radius: 18px;
+  border: none;
+  background: none;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* 4. "Sent"/"Seen" — right-aligned, small, only under the last own message */
+.chat-status { font-size: .65rem; color: var(--muted); text-align: right; margin-top: .2rem; padding-right: .25rem; }
+
+/* Avatar alignment: received avatar on the left */
+.chat-msg-line { display: flex; gap: .5rem; align-items: flex-end; width: 100%; }
+.chat-msg-line.chat-has-avatar { align-items: flex-start; }

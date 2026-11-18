@@ -109,7 +109,7 @@ const PetalChatUI = (() => {
 
   /* ---------- message html ---------- */
   function statusHtml(m) {
-    if (!isOwn(m)) return '';
+    if (!isOwn(m) || !m._lastOwn) return '';
     const rc = readCol();
     const seen = m[rc] === true || m[rc] === 1;
     const status = seen ? 'Seen' : 'Sent';
@@ -153,11 +153,12 @@ const PetalChatUI = (() => {
     const reactions = reactionPillHtml(m);
     const status = statusHtml(m);
     const singleCls = m._single ? ' chat-pos-single' : (' chat-pos-' + m._pos);
+    const imgCls = m.kind === 'image' ? ' chat-bubble-img' : '';
     return `
       <div class="chat-msg-row ${own ? 'chat-mine' : 'chat-them'}">
         <div class="chat-bubble-wrap${singleCls}" data-msgid="${e(m.id)}">
           ${pinnedBadge}
-          <div class="chat-bubble ${own ? 'chat-bubble-own' : 'chat-bubble-recv'}${singleCls}" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}">
+          <div class="chat-bubble ${own ? 'chat-bubble-own' : 'chat-bubble-recv'}${singleCls}${imgCls}" data-msgid="${e(m.id)}" title="${e(fmtClock(m.created_at))}">
             ${bodyHtml(m, urls)}
           </div>
           ${reactions}
@@ -190,6 +191,13 @@ const PetalChatUI = (() => {
       const msgs = raw.filter(m => m.user_id === cfg.conversationUserId);
       msgs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       st.msgs = msgs;
+
+      // Messenger-style: show "Sent"/"Seen" only under the LAST own message
+      let lastOwnIdx = -1;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (isOwn(msgs[i])) { lastOwnIdx = i; break; }
+      }
+      if (lastOwnIdx >= 0) msgs[lastOwnIdx]._lastOwn = true;
 
       // load attachment urls for media messages
       const todo = msgs.filter(m => (m.kind === 'image' || m.kind === 'voice') && m.attachment_path && !m.deleted_at && !st.urls[m.id]);
