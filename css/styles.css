@@ -773,3 +773,23 @@ th { background: linear-gradient(180deg, #fff, var(--accent-soft)); }
 
 /* Sent/Seen only under the LAST own message, right-aligned, small */
 .chat-status { font-size: .65rem; color: var(--muted); text-align: right; margin-top: .2rem; padding-right: .25rem; }
+
+/* Messenger bubbles */
+.chat-bubble { font-size: 15px; line-height: 1.35; padding: 8px 12px; width: fit-content; min-width: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; border-radius: 18px; border: 0; box-shadow: none; }
+.chat-bubble-wrap { max-width: min(68%, 520px); }
+.chat-bubble-own { background: linear-gradient(135deg, #ff6f9f, #c94f7c); color: #fff; }
+.chat-bubble-recv { background: #eef0f2; color: #1c1e21; }
+.chat-msg-row { margin: 2px 0; }
+.chat-msg-line > .chat-msg-row[data-side="own"] { margin-left: auto; }
+.chat-msg-row[data-side="own"] .chat-pos-first .chat-bubble { border-bottom-right-radius: 4px; }
+.chat-msg-row[data-side="own"] .chat-pos-mid .chat-bubble { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+.chat-msg-row[data-side="own"] .chat-pos-last .chat-bubble { border-top-right-radius: 4px; }
+.chat-msg-row[data-side="other"] .chat-pos-first .chat-bubble { border-bottom-left-radius: 4px; }
+.chat-msg-row[data-side="other"] .chat-pos-mid .chat-bubble { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+.chat-msg-row[data-side="other"] .chat-pos-last .chat-bubble { border-top-left-radius: 4px; }
+.chat-bubble-img, .chat-bubble.chat-bubble-img { background: transparent; padding: 0; border: 0; }
+.chat-img { width: auto; height: auto; max-width: 320px; max-height: 360px; object-fit: cover; border-radius: 18px; display: block; }
+.chat-divider { text-align: center; font-size: 12px; font-weight: 600; color: #7a626b; margin: 14px 0 8px; border: 0; }
+.chat-divider::before, .chat-divider::after { display: none; }
+.chat-status { font-size: 11px; color: #7a626b; text-align: right; margin-top: 2px; }
+.chat-reaction-pill { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.18); border-radius: 12px; padding: 0 6px; font-size: 13px; margin-top: -6px; position: relative; }
